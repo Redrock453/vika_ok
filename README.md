@@ -16,11 +16,8 @@
 ## Установка
 
 ```bash
-# Клонируем
 git clone https://github.com/Redrock453/vika_ok.git
 cd vika_ok
-
-# Устанавливаем зависимости
 pip install -r requirements.txt
 ```
 
