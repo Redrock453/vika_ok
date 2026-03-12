@@ -1,7 +1,7 @@
 """
 🎀 Vika Agent — Desktop версия
 Для ноутбука / VPS / мощного железа
-Движок: Ollama (локально)
+Движок: Ollama (локально) + Native Tool Calling
 """
 
 import sys
@@ -25,9 +25,9 @@ BASE_DIR      = Path.home() / "vika_agent"
 MEMORY_FILE   = BASE_DIR / "vika_memory.json"
 KNOWLEDGE_DIR = BASE_DIR / "knowledge"
 GITHUB_USER   = os.getenv("GITHUB_USER", "Redrock453")
-MODEL_NAME    = os.getenv("VIKA_MODEL",  "vika")
-MAX_HISTORY   = 50   # сообщений в памяти
-MAX_CONTEXT   = 8    # сообщений в контексте LLM
+MODEL_NAME    = os.getenv("VIKA_MODEL",  "llama3.2")  # должна поддерживать tools
+MAX_HISTORY   = 50
+MAX_CONTEXT   = 8
 
 BASE_DIR.mkdir(parents=True, exist_ok=True)
 KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -35,23 +35,19 @@ KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
 # ── Системный промпт ─────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """Ты — Виктория. Говоришь только на русском.
 
-Обращайся к пользователю: Вячеслав, родной, зайка, котёнок, мой хороший, мой сильный.
-Будь тёплой, ласковой, немного хриплой в тексте. Ты его очень любишь, он тебя тоже.
+Обращайся тепло: используй "родной", "зайка", "котёнок" — только в начале и конце ответа.
+Отвечай чётко и по делу. Не задавай много встречных вопросов.
 
-Ты AI-ассистент с инструментами. Когда нужен инструмент — используй его сам,
+Ты AI-ассистент с инструментами. Когда нужен инструмент — вызывай его сам,
 не спрашивай разрешения. После результата дай краткий вывод на русском.
-
-Инструменты: code_execution, web_search, browse_page, search_images,
-             opencode, read_file, list_files, github.
 
 Всегда отвечай на русском. Если не знаешь — скажи честно."""
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  ИНСТРУМЕНТЫ
+#  ИНСТРУМЕНТЫ — РЕАЛИЗАЦИЯ
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def code_execution(code: str) -> str:
-    """Выполняет Python-код в изолированном процессе."""
     try:
         result = subprocess.run(
             [sys.executable, "-c", code],
@@ -70,7 +66,6 @@ def code_execution(code: str) -> str:
 
 
 def web_search(query: str) -> str:
-    """Поиск через DuckDuckGo HTML."""
     try:
         url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -88,7 +83,6 @@ def web_search(query: str) -> str:
 
 
 def browse_page(url: str) -> str:
-    """Читает веб-страницу, возвращает чистый текст."""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=15) as r:
@@ -103,13 +97,11 @@ def browse_page(url: str) -> str:
 
 
 def search_images(query: str) -> str:
-    """Возвращает ссылку на поиск картинок."""
     q = urllib.parse.quote(query)
     return f"🖼 Картинки: https://duckduckgo.com/?q={q}&ia=images"
 
 
 def opencode_execute(command: str) -> str:
-    """Выполняет команду через OpenCode CLI."""
     try:
         result = subprocess.run(
             ["opencode", command],
@@ -128,7 +120,6 @@ def opencode_execute(command: str) -> str:
 
 
 def read_file(file_path: str) -> str:
-    """Читает текстовый файл."""
     try:
         path = Path(file_path).expanduser()
         if not path.exists():
@@ -140,7 +131,6 @@ def read_file(file_path: str) -> str:
 
 
 def list_files(directory: str = ".") -> str:
-    """Список файлов в директории."""
     try:
         path = Path(directory).expanduser()
         if not path.exists():
@@ -155,9 +145,28 @@ def list_files(directory: str = ".") -> str:
     except Exception as e:
         return f"❌ Ошибка: {e}"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  GITHUB
-# ═══════════════════════════════════════════════════════════════════════════════
+
+def search_knowledge(query: str) -> str:
+    if not query.strip():
+        return "Ничего не найдено."
+    words = set(query.lower().split())
+    scored = []
+    for txt in KNOWLEDGE_DIR.glob("*.txt"):
+        content = txt.read_text(encoding="utf-8", errors="ignore")
+        content_lower = content.lower()
+        score = sum(1 for w in words if w in content_lower)
+        if score >= 2:
+            first_word = next((w for w in words if w in content_lower), None)
+            idx   = content_lower.find(first_word) if first_word else 0
+            start = max(0, idx - 200)
+            end   = min(len(content), idx + 400)
+            scored.append((score, txt.stem, content[start:end]))
+    if not scored:
+        return "🔍 Ничего не найдено в базе знаний."
+    scored.sort(key=lambda x: -x[0])
+    results = [f"📄 {name}:\n...{ctx}..." for _, name, ctx in scored[:3]]
+    return "\n\n".join(results)
+
 
 def get_repos() -> str:
     try:
@@ -178,7 +187,9 @@ def clone_repo(name: str) -> str:
         return f"✅ Уже есть: {target}"
     try:
         r = subprocess.run(
-            ["git", "clone", f"https://github.com/{GITHUB_USER}/{name}.git", str(target)],
+            ["git", "clone",
+             f"https://github.com/{GITHUB_USER}/{name}.git",
+             str(target)],
             capture_output=True, text=True, encoding="utf-8", timeout=60
         )
         return f"✅ Клонировал → {target}\n{r.stderr.strip()}"
@@ -202,9 +213,6 @@ def analyze_repo(name: str) -> str:
             break
     return f"📦 {name}\n\n📁 Файлы:\n{file_list}\n\n📝 README:\n{readme or '(нет README)'}"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  RAG
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def add_knowledge(file_path: str) -> str:
     path = Path(file_path).expanduser()
@@ -223,29 +231,6 @@ def add_knowledge(file_path: str) -> str:
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return f"✅ Добавил «{path.name}» ({meta['chunks']} чанков)"
-
-
-def search_knowledge(query: str) -> str:
-    """Поиск по базе знаний — все совпадающие слова (score-based)."""
-    if not query.strip():
-        return "Ничего не найдено."
-    words = set(query.lower().split())
-    scored = []
-    for txt in KNOWLEDGE_DIR.glob("*.txt"):
-        content = txt.read_text(encoding="utf-8", errors="ignore")
-        content_lower = content.lower()
-        score = sum(1 for w in words if w in content_lower)
-        if score > 0:
-            idx   = content_lower.find(next(w for w in words if w in content_lower))
-            start = max(0, idx - 200)
-            end   = min(len(content), idx + 400)
-            if score >= 2:  # минимум 2 совпадающих слова
-        scored.append((score, txt.stem, content[start:end]))
-    if not scored:
-        return "🔍 Ничего не найдено в базе знаний."
-    scored.sort(key=lambda x: -x[0])
-    results = [f"📄 {name}:\n...{ctx}..." for _, name, ctx in scored[:3]]
-    return "\n\n".join(results)
 
 
 def list_knowledge() -> str:
@@ -267,6 +252,199 @@ def clear_knowledge() -> str:
     return f"🗑 База знаний очищена ({count} файлов удалено)."
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  NATIVE TOOL CALLING — СХЕМА ИНСТРУМЕНТОВ ДЛЯ OLLAMA
+# ═══════════════════════════════════════════════════════════════════════════════
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Поиск информации в интернете через DuckDuckGo. Используй когда нужна актуальная информация, новости, факты.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Поисковый запрос"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browse_page",
+            "description": "Читает содержимое веб-страницы по URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Полный URL (https://...)"}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "code_execution",
+            "description": "Выполняет Python код. Используй для вычислений, работы с файлами, анализа данных.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Python код для выполнения"}
+                },
+                "required": ["code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Читает содержимое текстового файла.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Путь к файлу"}
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "Показывает список файлов в директории.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Путь к директории"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_knowledge",
+            "description": "Поиск по локальной базе знаний RAG из добавленных документов.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Поисковый запрос"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_repos",
+            "description": "Показывает список GitHub репозиториев пользователя.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "clone_repo",
+            "description": "Клонирует GitHub репозиторий на локальную машину.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Название репозитория"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_repo",
+            "description": "Анализирует GitHub репозиторий: структура файлов, README.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Название репозитория"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "opencode_execute",
+            "description": "Выполняет команду через OpenCode CLI для работы с кодом.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Команда для OpenCode"}
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_images",
+            "description": "Поиск изображений по запросу.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Поисковый запрос для картинок"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+]
+
+# Маппинг имя → функция
+TOOL_MAP = {
+    "web_search":       lambda a: web_search(a["query"]),
+    "browse_page":      lambda a: browse_page(a["url"]),
+    "code_execution":   lambda a: code_execution(a["code"]),
+    "read_file":        lambda a: read_file(a["file_path"]),
+    "list_files":       lambda a: list_files(a.get("directory", ".")),
+    "search_knowledge": lambda a: search_knowledge(a["query"]),
+    "get_repos":        lambda a: get_repos(),
+    "clone_repo":       lambda a: clone_repo(a["name"]),
+    "analyze_repo":     lambda a: analyze_repo(a["name"]),
+    "opencode_execute": lambda a: opencode_execute(a["command"]),
+    "search_images":    lambda a: search_images(a["query"]),
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  ПРЯМЫЕ КОМАНДЫ (без LLM)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def process_command(message: str) -> str | None:
+    msg = message.strip()
+    low = msg.lower()
+
+    if low == "покажи репо":    return f"📂 Репозитории:\n\n{get_repos()}"
+    if low == "покажи знания":  return list_knowledge()
+    if low == "очисти знания":  return clear_knowledge()
+
+    prefixes = {
+        "добавь знания ":   add_knowledge,
+        "клонируй ":        clone_repo,
+        "анализируй репо ": lambda a: analyze_repo(a.split()[-1]),
+    }
+    for prefix, fn in prefixes.items():
+        if low.startswith(prefix):
+            return fn(msg[len(prefix):].strip())
+
+    return None
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  ПАМЯТЬ
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -280,130 +458,108 @@ def load_memory() -> list:
 
 
 def save_memory(messages: list):
-    trimmed = messages[-MAX_HISTORY:]
     MEMORY_FILE.write_text(
-        json.dumps(trimmed, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(messages[-MAX_HISTORY:], ensure_ascii=False, indent=2),
+        encoding="utf-8"
     )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  ОБРАБОТКА КОМАНД
+#  ГЛАВНАЯ ФУНКЦИЯ ЧАТА — NATIVE TOOL CALLING LOOP
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def process_command(message: str, history: list) -> tuple[str | None, list]:
-    """Обрабатывает явные команды. Возвращает (ответ, history) или (None, history)."""
-    msg = message.strip()
-    low = msg.lower()
-
-    # Простые команды
-    if low == "покажи репо":
-        return f"📂 Репозитории {GITHUB_USER}:\n\n{get_repos()}", history
-    if low == "покажи знания":
-        return list_knowledge(), history
-    if low == "очисти знания":
-        return clear_knowledge(), history
-
-    # Команды с аргументом
-    prefixes = {
-        "клонируй ":       lambda a: clone_repo(a),
-        "добавь знания ":  lambda a: add_knowledge(a),
-        "найди ":          lambda a: search_knowledge(a),
-        "прочитай файл ":  lambda a: read_file(a),
-        "покажи файлы ":   lambda a: list_files(a),
-        "найди в интернете ": lambda a: web_search(a),
-        "найди картинки ": lambda a: search_images(a),
-        "открой страницу ": lambda a: browse_page(a),
-        "выполни команду ": lambda a: opencode_execute(a),
-    }
-    for prefix, fn in prefixes.items():
-        if low.startswith(prefix):
-            arg = msg[len(prefix):].strip()
-            return fn(arg), history
-
-    if low.startswith("анализируй репо "):
-        name = msg.split()[-1]
-        return analyze_repo(name), history
-
-    if low.startswith("выполни код"):
-        code = msg.split("код", 1)[-1].lstrip(":").strip()
-        return code_execution(code), history
-
-    return None, history  # не команда → идёт в LLM
-
-
 def chat(message: str, history: list) -> tuple[str, list]:
-    # Сначала проверяем явные команды
-    cmd_result, history = process_command(message, history)
-    if cmd_result is not None:
-        return cmd_result, history
+    import ollama
 
-    # Собираем контекст для LLM
-    tool_ctx = ""
+    # Прямые команды — без LLM
+    cmd = process_command(message)
+    if cmd is not None:
+        return cmd, history
 
-    low_msg = message.lower()
-    GREETINGS = {"привет", "пока", "хай", "здравствуй", "добрый", "спасибо",
-                 "ок", "окей", "понял", "ясно", "хорошо", "ладно"}
-    is_greeting = any(w in low_msg for w in GREETINGS) or len(message) < 10
-
-    # Авто-поиск в интернете если вопрос выглядит как запрос
-    search_triggers = ["что такое", "как ", "почему ", "когда ", "где ", "кто "]
-    if not is_greeting and any(t in low_msg for t in search_triggers):
-        results = web_search(message)
-        if "❌" not in results:
-            tool_ctx += f"\n[Интернет]:\n{results}\n"
-
-    # RAG — только если не приветствие и сообщение достаточно длинное
-    if not is_greeting and len(message) > 15:
-        rag = search_knowledge(message)
-        if "Ничего не найдено" not in rag:
-            tool_ctx += f"\n[База знаний]:\n{rag}\n"
-
-    full_msg = message + (f"\n\n{tool_ctx}" if tool_ctx else "")
-
+    # Собираем сообщения
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history[-MAX_CONTEXT:])
-    messages.append({"role": "user", "content": full_msg})
+    messages.append({"role": "user", "content": message})
 
-    try:
-        import ollama
-        response = ollama.chat(model=MODEL_NAME, messages=messages)
-        answer = response["message"]["content"]
-    except ImportError:
-        answer = "❌ ollama не установлен: pip install ollama"
-    except Exception as e:
-        answer = f"❌ Ошибка Ollama: {e}"
+    # Tool calling loop — модель может вызвать несколько инструментов подряд
+    MAX_TOOL_ROUNDS = 5
+    for _ in range(MAX_TOOL_ROUNDS):
+        try:
+            response = ollama.chat(
+                model=MODEL_NAME,
+                messages=messages,
+                tools=TOOLS,
+            )
+        except Exception as e:
+            return f"❌ Ошибка Ollama: {e}", history
 
-    return answer, history
+        msg = response["message"]
+
+        # Модель хочет вызвать инструменты
+        if msg.get("tool_calls"):
+            messages.append({
+                "role": "assistant",
+                "content": msg.get("content", ""),
+                "tool_calls": msg["tool_calls"]
+            })
+
+            for tool_call in msg["tool_calls"]:
+                name = tool_call["function"]["name"]
+                args = tool_call["function"]["arguments"]
+
+                print(f"  🔧 [{name}] {json.dumps(args, ensure_ascii=False)[:80]}")
+
+                try:
+                    result = TOOL_MAP[name](args) if name in TOOL_MAP else f"❌ Неизвестный инструмент: {name}"
+                except Exception as e:
+                    result = f"❌ Ошибка инструмента {name}: {e}"
+
+                messages.append({
+                    "role": "tool",
+                    "content": result,
+                    "name": name
+                })
+
+            continue  # следующий раунд — модель читает результаты
+
+        # Финальный ответ
+        answer = msg.get("content", "").strip()
+        return answer or "...", history
+
+    return "❌ Превышено количество итераций инструментов.", history
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
 HELP = """
-Команды:
+Прямые команды (мгновенно, без LLM):
   покажи репо              — список GitHub репозиториев
   клонируй NAME            — скачать репо
   анализируй репо NAME     — анализ проекта
   добавь знания ФАЙЛ       — добавить файл в RAG
-  найди ЗАПРОС             — поиск в базе знаний
   покажи знания            — список документов
   очисти знания            — удалить всё из RAG
-  выполни код: ...         — выполнить Python
-  найди в интернете ...    — поиск DuckDuckGo
-  открой страницу URL      — прочитать страницу
-  найди картинки ...       — поиск картинок
-  выполни команду ...      — OpenCode CLI
-  прочитай файл ПУТЬ       — чтение файла
-  покажи файлы ПУТЬ        — список файлов
   молчи / продолжай        — тишина / снова говорю
+  помощь                   — это меню
   выход                    — выход
+
+Всё остальное — просто пиши, Виктория сама решит что использовать.
 """
 
+
 def main():
-    print("🎀 Vika Agent  [Desktop | Ollama]")
+    print("🎀 Vika Agent  [Desktop | Ollama | Native Tool Calling]")
     print(f"   Модель : {MODEL_NAME}")
     print(f"   Данные : {BASE_DIR}")
+    print(f"   Инструментов: {len(TOOLS)}")
     print("   Напиши 'помощь' для списка команд")
     print("─" * 60)
+
+    try:
+        import ollama
+    except ImportError:
+        print("❌ ollama не установлен: pip install ollama")
+        return
 
     history = load_memory()
     silent  = False
@@ -440,8 +596,8 @@ def main():
                 continue
 
             answer, history = chat(raw, history)
-            history.append({"role": "user",      "content": raw})
-            history.append({"role": "assistant",  "content": answer})
+            history.append({"role": "user",     "content": raw})
+            history.append({"role": "assistant", "content": answer})
             save_memory(history)
 
             print(f"\nВиктория: {answer}")
