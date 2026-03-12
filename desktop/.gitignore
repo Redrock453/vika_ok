@@ -1,0 +1,5 @@
+.env
+vika_memory.json
+knowledge/
+__pycache__/
+*.pyc
