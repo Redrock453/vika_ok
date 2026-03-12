@@ -25,7 +25,7 @@ BASE_DIR      = Path.home() / "vika_agent"
 MEMORY_FILE   = BASE_DIR / "vika_memory.json"
 KNOWLEDGE_DIR = BASE_DIR / "knowledge"
 GITHUB_USER   = os.getenv("GITHUB_USER", "Redrock453")
-MODEL_NAME    = os.getenv("VIKA_MODEL",  "llama3.2:3b")  # должна поддерживать tools
+MODEL_NAME    = os.getenv("VIKA_MODEL",  "gemma3:4b")  # легкая модель
 MAX_HISTORY   = 50
 MAX_CONTEXT   = 8
 
