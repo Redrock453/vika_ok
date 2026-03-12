@@ -82,7 +82,7 @@ def web_search(query: str) -> str:
         return f"❌ Ошибка поиска: {e}"
 
 
-def browse_page(url: str) -> str:
+def browse_page(url: str, instructions: str = "") -> str:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=15) as r:
@@ -91,7 +91,10 @@ def browse_page(url: str) -> str:
         text = re.sub(r"<style[^>]*>.*?</style>",  "", text,  flags=re.DOTALL)
         text = re.sub(r"<[^>]+>", "", text)
         text = re.sub(r"\s{2,}", " ", text).strip()
-        return f"🌐 {url}\n\n{text[:3000]}"
+        header = f"🌐 {url}"
+        if instructions:
+            header += f"\n📌 Задача: {instructions}"
+        return f"{header}\n\n{text[:3000]}"
     except Exception as e:
         return f"❌ Ошибка чтения страницы: {e}"
 
@@ -274,11 +277,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "browse_page",
-            "description": "Читает содержимое веб-страницы по URL.",
+            "description": "Читает содержимое веб-страницы по URL. Можно указать что именно извлечь.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "url": {"type": "string", "description": "Полный URL (https://...)"}
+                    "url": {"type": "string", "description": "Полный URL (https://...)"},
+                    "instructions": {"type": "string", "description": "Что именно извлечь: цены, контакты, новости и т.д. (необязательно)"}
                 },
                 "required": ["url"]
             }
@@ -409,7 +413,7 @@ TOOLS = [
 # Маппинг имя → функция
 TOOL_MAP = {
     "web_search":       lambda a: web_search(a["query"]),
-    "browse_page":      lambda a: browse_page(a["url"]),
+    "browse_page":      lambda a: browse_page(a["url"], a.get("instructions", "")),
     "code_execution":   lambda a: code_execution(a["code"]),
     "read_file":        lambda a: read_file(a["file_path"]),
     "list_files":       lambda a: list_files(a.get("directory", ".")),
