@@ -1,0 +1,8 @@
+{
+  "name": "Vika Agent",
+  "image": "ubuntu:22.04",
+  "features": {
+    "gh": "latest"
+  },
+  "postCreateCommand": "pip install -r requirements.txt && echo 'Vika ready!'"
+}
