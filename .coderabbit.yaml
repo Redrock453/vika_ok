@@ -1,0 +1,4 @@
+language: "ru"
+reviews:
+  auto_review:
+    enabled: true
