@@ -150,12 +150,13 @@ SYSTEM_PROMPT = """Ты — Виктория. Говоришь только на
 - opencode: выполнение команд через OpenCode CLI
 - read_file: чтение файлов
 - list_files: список файлов в директории
-
-Также у тебя есть RAG — можешь искать в базе знаний.
+- clone_repo_ssh: клонирование репо через SSH
 
 Команды:
 - покажи репо → список репозиториев
-- клонируй NAME → скачать репо
+- клонируй NAME → скачать через HTTPS
+- клонируй ssh NAME → скачать через SSH
+
 - анализируй репо NAME → анализ проекта
 - добавь знания ФАЙЛ → добавить в базу
 - найди ЗАПРОС → поиск в знаниях
@@ -181,13 +182,13 @@ def get_repos():
                           capture_output=True, text=True, encoding="utf-8")
     return result.stdout
 
-def clone_repo(name):
+def clone_repo_ssh(name):
     target = f"C:/Users/admin/{name}"
     if Path(target).exists():
         return f"Уже есть: {name}"
-    result = subprocess.run(["git", "clone", f"https://github.com/Redrock453/{name}.git", target],
+    result = subprocess.run(["git", "clone", f"git@github.com:Redrock453/{name}.git", target],
                           capture_output=True, text=True, encoding="utf-8")
-    return f"Клонировал {name}\n{result.stdout + result.stderr}"
+    return f"Клонировал {name} через SSH\n{result.stdout + result.stderr}"
 
 def analyze_repo(name):
     target = f"C:/Users/admin/{name}"
@@ -341,6 +342,10 @@ def chat(message, history):
     if "покажи репо" in msg or "список репо" in msg:
         return f"📂 Твои репозитории:\n\n{get_repos()}", history
     
+    if msg.startswith("клонируй ssh "):
+        repo = msg.replace("клонируй ssh", "").strip()
+        return clone_repo_ssh(repo), history
+    
     if msg.startswith("клонируй "):
         repo = msg.replace("клонируй", "").strip()
         return clone_repo(repo), history
@@ -382,7 +387,7 @@ def main():
     print("🎀 Vika Agent - Полная версия с Tool Calling + OpenCode!")
     print("Инструменты: code_execution, web_search, browse_page, search_images,")
     print("            opencode, read_file, list_files")
-    print("Команды: покажи репо, клонируй NAME, анализируй репо NAME,")
+    print("Команды: покажи репо, клонируй NAME, клонируй ssh NAME, анализируй репо NAME,")
     print("        добавь знания ФАЙЛ, найди ЗАПРОС, выполни код: ...")
     print("        найди в интернете: ..., открой страницу: ...")
     print("        выполни команду: ..., прочитай файл: ПУТЬ, покажи файлы: ПУТЬ")
