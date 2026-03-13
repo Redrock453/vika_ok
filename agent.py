@@ -8,7 +8,7 @@ import io
 import os
 import json
 import subprocess
-import urllib.request
+import requests
 import urllib.parse
 from pathlib import Path
 import ollama
@@ -47,9 +47,8 @@ def web_search(query: str) -> str:
     """Ищет в интернете через DuckDuckGo"""
     try:
         url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            html = response.read().decode('utf-8')
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        html = response.text
         
         import re
         titles = re.findall(r'<a class="result__a"[^>]*>([^<]+)</a>', html)
@@ -68,9 +67,8 @@ def web_search(query: str) -> str:
 def browse_page(url: str) -> str:
     """Читает веб-страницу"""
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=15) as response:
-            html = response.read().decode('utf-8')
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+        html = response.text
         
         import re
         text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
