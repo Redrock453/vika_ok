@@ -1,1 +1,9 @@
-ollama>=0.1.0
+google-generativeai
+qdrant-client
+sentence-transformers
+langchain-text-splitters
+requests
+python-dotenv
+numpy
+pathlib
+argparse
