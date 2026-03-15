@@ -1,0 +1,13 @@
+node_modules/
+venv/
+.git/
+*.log
+*.tar.gz
+bin/java/
+bin/signal/
+AppData/
+Local Settings/
+Documents/
+Music/
+Videos/
+Pictures/
