@@ -1,10 +1,7 @@
-google-generativeai
-qdrant-client
-sentence-transformers
-langchain-text-splitters
-requests
-python-dotenv
-numpy
-pathlib
-argparse
-aiogram
+google-generativeai>=0.4.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+qdrant-client>=1.7.0
+sentence-transformers>=2.2.2
+openai>=1.12.0
+ollama>=0.1.6

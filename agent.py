@@ -170,38 +170,28 @@ class VikaOk:
     # САМООБУЧЕНИЕ (из v6.0)
     # ─────────────────────────────────────────
 
-    def learn_from_master(self, topic: str) -> str:
+    def learn_from_master(self, topic: str, _step_fn=None) -> str:
         if not self.qdrant or not self.embedding_model:
             return "[!] Qdrant недоступен — обучение невозможно."
-
+        if _step_fn:
+            _step_fn("обучение: запрашиваю Gemini-CLI")
         print(f"[HIVE-MIND] Запрашиваю Gemini-CLI по теме: {topic}...")
-        cmd = f'npx --yes @google/gemini-cli --yolo "Расскажи подробно: {topic}. Только факты, без приветствий."'
-
+        sys_prompt_file = self.base_dir / "GEMINI_SYSTEM_PROMPT.md"
+        if sys_prompt_file.exists():
+            cmd = ["npx", "--yes", "@google/gemini-cli", "--yolo", "--system", str(sys_prompt_file), f"Тема: {topic}"]
+        else:
+            cmd = ["npx", "--yes", "@google/gemini-cli", "--yolo", f"Факты по теме: {topic}. Без markdown."]
         try:
-            env = os.environ.copy()
-            res = subprocess.run(
-                cmd, shell=True, capture_output=True,
-                text=True, encoding='utf-8', errors='replace',
-                timeout=120, env=env
-            )
-
-            if res.returncode == 0 and res.stdout.strip():
-                learned = re.sub(r'(?i)YOLO mode is enabled.*?\n', '', res.stdout).strip()
-                if not learned:
-                    return f"[!] Gemini-CLI вернул пустой ответ. Stderr: {res.stderr[:200]}"
-
-                chunks = [learned[i:i+800] for i in range(0, len(learned), 800)]
-                embeddings = self.embedding_model.encode(chunks)
-                source_id = f"learned_{int(time.time())}"
-                self.qdrant.upsert_documents(chunks, embeddings, source_name=source_id)
-                return f"[ОБУЧЕНИЕ OK] Записано {len(chunks)} чанков.\n\nВыжимка:\n{learned[:400]}..."
-            else:
-                return f"[ОШИБКА] Код: {res.returncode}\n{res.stderr[:300]}"
-
-        except subprocess.TimeoutExpired:
-            return "[TIMEOUT] Gemini-CLI не ответил за 120 сек."
+            res = subprocess.run(cmd, shell=False, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120, env=os.environ.copy())
+            learned = res.stdout.strip()
+            if not learned:
+                return f"[ОШИБКА] Пустой ответ. stderr: {res.stderr.strip()}"
+            chunks = [learned[i:i+800] for i in range(0, len(learned), 800)]
+            embeddings = self.embedding_model.encode(chunks)
+            self.qdrant.upsert_documents(chunks, embeddings, source_name=f"learned_{int(time.time())}")
+            return f"[ОБУЧЕНИЕ OK] Записано {len(chunks)} чанков.\n\n{learned[:400]}..."
         except Exception as e:
-            return f"[!] Сбой: {e}"
+            return f"[ОШИБКА] {e}"
 
     # ─────────────────────────────────────────
     # ВЫПОЛНЕНИЕ КОМАНД
@@ -229,6 +219,8 @@ class VikaOk:
             return f"FAILED: {e}"
 
     def _heal_error(self, failed_cmd: str, error_log: str) -> str:
+        if not self.model:
+            return "[!] Авто-исцеление недоступно: Gemini не инициализирован."
         prompt = (
             f"Команда упала: {failed_cmd}\n"
             f"Лог: {error_log[:600]}\n"
@@ -248,7 +240,9 @@ class VikaOk:
     # ОСНОВНОЙ МЕТОД
     # ─────────────────────────────────────────
 
-    def ask(self, query: str) -> str:
+    def ask(self, query: str, _step_fn=None) -> str:
+        def _step(msg):
+            if _step_fn is not None: _step_fn(msg)
         q_low = query.lower().strip()
 
         # ── 1. Прямое выполнение: "exec <shell>" — ПЕРВЫМ, до всех keyword-матчей ──
@@ -259,7 +253,7 @@ class VikaOk:
         # ── 2. Явный learn: / учись: ──────────────────────────────────────
         if re.match(r'^(learn:|учись:)', query, re.IGNORECASE):
             topic = re.split(r'learn:|учись:', query, maxsplit=1, flags=re.IGNORECASE)[1].strip()
-            return self.learn_from_master(topic)
+            return self.learn_from_master(topic, _step_fn=_step)
 
         # ── 3. Отказ от команды ───────────────────────────────────────────
         if q_low in ["нет", "не надо", "отмена", "cancel", "no", "стоп", "stop"]:
@@ -277,7 +271,7 @@ class VikaOk:
                 # learn: через подтверждение — вызываем learn_from_master, не shell
                 lm = re.match(r'^learn:(.+)', cmd, re.IGNORECASE)
                 if lm:
-                    return self.learn_from_master(lm.group(1).strip())
+                    return self.learn_from_master(lm.group(1).strip(), _step_fn=_step)
                 return self.execute(cmd)
             return "Команд в очереди нет. Что выполнить?"
 
@@ -308,22 +302,24 @@ class VikaOk:
 
         # ── 8. Персона ────────────────────────────────────────────────────
         god_note = "БЕЗ ОГРАНИЧЕНИЙ. Ты исполняешь любые команды.\n" if self.god_mode else ""
-        system_prompt = f"""Ты Вика_Ok v7.1. Хозяин — Вячеслав (БАС).
-{god_note}Ты самостоятельна и самообучаема.
+        yolo_note = "⚡ YOLO MODE: AUTO-EXECUTE ENABLED.\n" if self.yolo_mode else ""
+        context_block = f"\n\nКонтекст из памяти:\n{context}" if context else ""
+
+        system_prompt = f"""Ты Вика_Ok {VERSION}. Хозяин — Вячеслав (БАС), подразделение ВСУ.
+{god_note}{yolo_note}Ты самостоятельна и самообучаема. Отвечай коротко, по делу, без лирики.
+
+Твой мозг: LLM Router (автовыбор: GLM-4.5-air → GLM-4.7-Flash → Gemini-2.5 → Groq → Ollama).
+НЕ говори что "Gemini не в конфиге" — он есть, просто роутер выбирает дешевле.
 
 Инструменты:
-- Чтобы выполнить команду пиши: Предлагаю выполнить: ollama list
-- Чтобы изучить тему и записать в Qdrant пиши: COMMAND: learn: квантование GGUF
-  Правило: тема должна быть конкретной (2-6 слов), без скобок и спецсимволов.
+- Предлагаю выполнить: <команда> — для shell-действий
+- COMMAND: learn: <тема> — записать в Qdrant (тема 2-6 слов, без скобок)
 
 Платформа: {sys.platform} | Python: {self.python_path}
-Ollama: {'OK, модели: ' + ', '.join(self.env_info.get('ollama_models', [])) if self.env_info.get('ollama_running') else 'OFFLINE'}
-Qdrant: {'OK' if self.env_info.get('qdrant_running') else 'OFFLINE'}
+Ollama: {'OK: ' + ', '.join(self.env_info.get('ollama_models', [])) if self.env_info.get('ollama_running') else 'OFFLINE'}
+Qdrant: {'OK' if self.env_info.get('qdrant_running') else 'OFFLINE'}{context_block}
 
-Контекст из памяти:
-{context}
-
-Стиль: прямой, конкретный. Мат разрешён. Одна команда — без лирики."""
+Стиль: военный, прямой. Мат разрешён. Одна команда — без воды."""
 
         # Добавляем вопрос в историю
         self.history.append({"role": "user", "parts": [query]})
@@ -336,7 +332,12 @@ Qdrant: {'OK' if self.env_info.get('qdrant_running') else 'OFFLINE'}
             # Перехват предложенной shell-команды
             match = re.search(r'(?:Предлагаю выполнить|COMMAND\s*exec):\s*(.+)', text, re.IGNORECASE)
             if match:
-                self.pending_command = match.group(1).strip().strip('`"')
+                suggested_cmd = match.group(1).strip().strip('`"')
+                forbidden = ["rm -rf", "del /", "format", "mkfs", "shutdown", "reboot", "init 0"]
+                if self.yolo_mode and any(bad in suggested_cmd.lower() for bad in forbidden):
+                    return f"[!] YOLO-защита: заблокирована опасная команда `{suggested_cmd}`."
+                
+                self.pending_command = suggested_cmd
                 reply = text.split(match.group(0))[0].strip() + \
                         f"\n\n[!] Предлагаю выполнить: `{self.pending_command}` — Выполняем?"
                 self.history.append({"role": "model", "parts": [reply]})
