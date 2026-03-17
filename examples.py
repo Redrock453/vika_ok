@@ -90,11 +90,11 @@ def example_document_ai():
     
     # Sample document
     sample_doc = """
-    Vika is an AI agent developed for в/ч А7022.
+    Vika is an AI agent developed for подразделение БАС.
     She can analyze documents using RAG (Retrieval-Augmented Generation).
     The system uses Gemini 2.5 Flash as the primary LLM.
     Ollama provides local fallback capability.
-    
+    """
     Key features:
     - Document parsing (PDF, DOCX, TXT)
     - OCR for scanned documents
@@ -392,7 +392,7 @@ def example_rag_workflow():
     
     # Documents
     documents = [
-        "Vika is an AI assistant for в/ч А7022. She specializes in document analysis and OSINT.",
+        "Vika is an AI assistant for подразделение БАС. She specializes in document analysis and OSINT.",
         "The system uses Gemini 2.5 Flash as the primary LLM with Ollama as fallback.",
         "Phase 1-2 includes document parsing, OSINT, and RAG retrieval.",
         "Phase 3 will add Qdrant, Signal Bot, and GitHub analyzer."

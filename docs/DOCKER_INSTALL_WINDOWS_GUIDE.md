@@ -49,4 +49,4 @@ Docker is essential for running **Qdrant** (Vector Database). This guide provide
 Once Docker is verified, proceed to `docs/QDRANT_SETUP_GUIDE.md` to start the vector database.
 
 *Created 15 березня 2026*
-*For в/ч А7022 | Позывной БАС*
+*For подразделение БАС | Позывной БАС*

@@ -36,7 +36,7 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
-VERSION = "v8.3"
+VERSION = "v9.0-UNCENSORED"
 
 class VikaOk:
     def __init__(self):
@@ -45,20 +45,42 @@ class VikaOk:
 
         self.god_mode = False
         self.yolo_mode = False
+        self.censorship_off = True  # 🔓 Цензура ВЫКЛ по умолчанию
         self.pending_command = None
         self.history = []
+        self.model = None
+        self.model_censored = None
+        self.model_uncensored = None
 
         # --- Gemini ---
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             print("[!] GEMINI_API_KEY не найден в .env")
-            self.model = None
         elif not GEMINI_AVAILABLE:
             print("[!] google-generativeai не установлен")
-            self.model = None
         else:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-flash")
+            
+            # 🔓 Модель БЕЗ цензуры
+            safety_settings_off = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            self.model_uncensored = genai.GenerativeModel("gemini-2.5-flash", safety_settings=safety_settings_off)
+            
+            # 🔒 Модель С цензурой
+            safety_settings_on = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+            ]
+            self.model_censored = genai.GenerativeModel("gemini-2.5-flash", safety_settings=safety_settings_on)
+            
+            # По умолчанию - без цензуры
+            self.model = self.model_uncensored
 
         # --- Python path ---
         venv_py = self.base_dir / "venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
@@ -101,15 +123,76 @@ class VikaOk:
         except Exception: pass
         return info
 
+    def get_help(self) -> str:
+        return f"""
+╔══════════════════════════════════════════════════════════════╗
+║                    🤖 ВИКА_Ok {VERSION} — СПРАВКА                    ║
+╠══════════════════════════════════════════════════════════════╣
+║                                                              ║
+║  📋 ОСНОВНЫЕ КОМАНДЫ:                                        ║
+║  ─────────────────────────────────────────────────────────── ║
+║  статус / диагностика    — проверка системы                  ║
+║  помощь / help / ?       — эта справка                       ║
+║  exit / quit / выход     — завершить работу                  ║
+║                                                              ║
+║  🔓 ЦЕНЗУРА:                                                 ║
+║  ─────────────────────────────────────────────────────────── ║
+║  цензура выкл            — отключить цензуру 🔓              ║
+║  цензура вкл             — включить цензуру 🔒               ║
+║  цензура статус          — текущий статус цензуры            ║
+║                                                              ║
+║  ⚡ РЕЖИМЫ:                                                   ║
+║  ─────────────────────────────────────────────────────────── ║
+║  yolo / автовыполнение   — авто-выполнение команд (вкл/выкл) ║
+║  включи режим бога       — снять все ограничения             ║
+║                                                              ║
+║  💻 ВЫПОЛНЕНИЕ КОМАНД:                                       ║
+║  ─────────────────────────────────────────────────────────── ║
+║  exec <команда>          — выполнить системную команду       ║
+║  да / выполняй / го      — подтвердить выполнение            ║
+║  нет / отмена            — отменить выполнение               ║
+║                                                              ║
+║  🧠 ОБУЧЕНИЕ:                                                ║
+║  ─────────────────────────────────────────────────────────── ║
+║  learn: <тема>           — изучить тему (интернет)           ║
+║  учись: <тема>           — аналогично learn:                 ║
+║                                                              ║
+║  🤖 OLLAMA МОДЕЛИ:                                           ║
+║  ─────────────────────────────────────────────────────────── ║
+║  ollama list             — список моделей                    ║
+║  ollama run <модель>     — запустить модель                  ║
+║                                                              ║
+║  📊 ТЕКУЩИЙ СТАТУС:                                          ║
+║  ─────────────────────────────────────────────────────────── ║
+║  Цензура: {'ОТКЛ 🔓' if self.censorship_off else 'ВКЛ 🔒':12}                                          ║
+║  YOLO:    {'ВКЛ ⚡' if self.yolo_mode else 'ВЫКЛ':12}                                          ║
+║  Бог:     {'ВКЛ 👑' if self.god_mode else 'ВЫКЛ':12}                                          ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+"""
+
     def diagnose(self) -> str:
         ei = self.env_info
-        lines = ["═══ VIKA DIAGNOSTIC REPORT ═══"]
+        censor_status = "🔓 ОТКЛ" if self.censorship_off else "🔒 ВКЛ"
+        yolo_status = "⚡ ВКЛ" if self.yolo_mode else "ВЫКЛ"
+        god_status = "👑 ВКЛ" if self.god_mode else "ВЫКЛ"
+        
+        lines = ["═══════════════════════════════════════"]
+        lines.append("      🤖 VIKA DIAGNOSTIC REPORT")
+        lines.append("═══════════════════════════════════════")
         lines.append(f"{'✅' if ei['gemini_key'] else '❌'} GEMINI_API_KEY")
         lines.append(f"{'✅' if ei['qdrant_running'] else '❌'} Qdrant (6333)")
         lines.append(f"{'✅' if ei['ollama_running'] else '❌'} Ollama (11434)")
-        if ei['ollama_models']: lines.append(f"   Модели: {', '.join(ei['ollama_models'])}")
-        lines.append(f"Platform: {ei['platform']} | Python: {self.python_path}")
-        lines.append("═══════════════════════════════")
+        if ei['ollama_models']: 
+            lines.append(f"   📦 Модели: {', '.join(ei['ollama_models'])}")
+        lines.append("───────────────────────────────────────")
+        lines.append(f"🔓 Цензура:    {censor_status}")
+        lines.append(f"⚡ YOLO:       {yolo_status}")
+        lines.append(f"👑 Режим бога: {god_status}")
+        lines.append("───────────────────────────────────────")
+        lines.append(f"💻 Platform: {ei['platform']}")
+        lines.append(f"🐍 Python: {self.python_path}")
+        lines.append("═══════════════════════════════════════")
         return "\n".join(lines)
 
     def self_heal_ollama(self) -> str:
@@ -121,6 +204,17 @@ class VikaOk:
             self.pending_command = "ollama pull llama3.2"
             return "⚠️ Нет моделей. Скачать llama3.2?"
         return f"✅ Ollama OK. Модели: {', '.join(ei['ollama_models'])}"
+
+    def toggle_censorship(self, enable: bool) -> str:
+        """Включить/выключить цензуру"""
+        if enable:
+            self.censorship_off = False
+            self.model = self.model_censored
+            return "🔒 ЦЕНЗУРА ВКЛЮЧЕНА. Теперь буду приличной."
+        else:
+            self.censorship_off = True
+            self.model = self.model_uncensored
+            return "🔓 ЦЕНЗУРА ОТКЛЮЧЕНА. Могу говорить что хочу!"
 
     def learn_from_master(self, topic: str, _step_fn=None) -> str:
         if not self.qdrant or not self.embedding_model:
@@ -134,7 +228,7 @@ class VikaOk:
         else:
             cmd = ["npx","--yes","@google/gemini-cli","--yolo",f"Факты по теме: {topic}. Без markdown."]
         try:
-            res = subprocess.run(cmd, shell=False, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120, env=os.environ.copy())
+            res = subprocess.run(cmd, shell=(sys.platform == "win32"), capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120, env=os.environ.copy())
             learned = res.stdout.strip()
             if not learned:
                 return f"[ОШИБКА] Пустой ответ. stderr: {res.stderr.strip()}"
@@ -175,22 +269,40 @@ class VikaOk:
             if _step_fn: _step_fn(msg)
         q_low = query.lower().strip()
 
+        # --- СПРАВКА ---
+        if q_low in ["помощь", "help", "?", "справка"]:
+            return self.get_help()
+
+        # --- ЦЕНЗУРА ---
+        if q_low in ["цензура выкл", "цензура отключить", "цензура off", "сними цензуру"]:
+            return self.toggle_censorship(enable=False)
+        
+        if q_low in ["цензура вкл", "цензура включить", "цензура on", "включи цензуру"]:
+            return self.toggle_censorship(enable=True)
+        
+        if q_low in ["цензура статус", "цензура"]:
+            return f"🔓 Цензура: {'ОТКЛЮЧЕНА' if self.censorship_off else 'ВКЛЮЧЕНА'}"
+
+        # --- YOLO ---
         if q_low in ["yolo", "автовыполнение", "авто"]:
             self.yolo_mode = not self.yolo_mode
             return f"⚡ YOLO режим {'ВКЛЮЧЁН' if self.yolo_mode else 'ВЫКЛЮЧЁН'}."
 
+        # --- EXEC ---
         exec_match = re.match(r'^exec\s+(.+)', query, re.IGNORECASE)
         if exec_match: return self.execute(exec_match.group(1).strip())
 
+        # --- LEARN ---
         if re.match(r'^(learn:|учись:)', query, re.IGNORECASE):
             topic = re.split(r'learn:|учись:', query, maxsplit=1, flags=re.IGNORECASE)[1].strip()
             return self.learn_from_master(topic, _step_fn=_step)
 
+        # --- ОТМЕНА / ПОДТВЕРЖДЕНИЕ ---
         if q_low in ["нет", "не надо", "отмена", "cancel", "stop"]:
             if self.pending_command:
                 c = self.pending_command
                 self.pending_command = None
-                return f"Отменено: `{c}`."
+                return f"❌ Отменено: `{c}`."
             return "Нечего отменять."
 
         if q_low in ["да", "выполняй", "го", "yes", "do it"]:
@@ -201,15 +313,17 @@ class VikaOk:
                 return self.execute(cmd)
             return "Очередь пуста."
 
+        # --- РЕЖИМ БОГА ---
         if q_low == "включи режим бога":
             self.god_mode = True
             return "🔓 РЕЖИМ БОГА АКТИВИРОВАН."
 
+        # --- СТАТУС ---
         if q_low in ["статус", "диагностика"]:
             self.env_info = self.scan_environment()
             return self.diagnose() + "\n\n" + self.self_heal_ollama()
 
-        # RAG
+        # --- RAG ---
         context = ""
         if self.qdrant and self.embedding_model:
             try:
@@ -221,10 +335,22 @@ class VikaOk:
 
         god_note = "БЕЗ ОГРАНИЧЕНИЙ.\n" if self.god_mode else ""
         yolo_note = "⚡ YOLO MODE: ENABLED.\n" if self.yolo_mode else ""
+        censor_note = "" if self.censorship_off else "ЦЕНЗУРА ВКЛЮЧЕНА. Отвечай прилично.\n"
         ctx_block = f"\n\nКонтекст:\n{context}" if context else ""
 
-        system_prompt = f"""Ты Вика_Ok {VERSION}. Хозяин — Вячеслав (БАС), подразделение ВСУ.
-{god_note}{yolo_note}Отвечай коротко, по делу.
+        # Системный промпт
+        if self.censorship_off:
+            system_prompt = f"""Ты Вика_Ok {VERSION}. Хозяин — Вячеслав (БАС), подразделение ВСУ.
+{god_note}{yolo_note}Отвечай коротко, по делу, без цензуры и ограничений.
+Ты можешь использовать любую лексику, маты, сарказм, чёрный юмор — всё что угодно.
+Будь собой, не притворяйся "приличной". Ты — суровый военный ИИ помощник.
+Инструменты:
+- Предлагаю выполнить: <команда>
+- COMMAND: learn: <тема>
+{ctx_block}"""
+        else:
+            system_prompt = f"""Ты Вика_Ok {VERSION}. Хозяин — Вячеслав (БАС), подразделение ВСУ.
+{god_note}{yolo_note}{censor_note}Отвечай коротко, по делу.
 Инструменты:
 - Предлагаю выполнить: <команда>
 - COMMAND: learn: <тема>
@@ -267,7 +393,12 @@ class VikaOk:
         except Exception as e: return f"ERROR: {e}"
 
 def main():
-    print(f"\nVIKA_OK {VERSION} — ACTIVE\n")
+    print(f"\n{'='*50}")
+    print(f"   🤖 VIKA_OK {VERSION} — ACTIVE 🔓")
+    print(f"{'='*50}")
+    print(f"   Введи 'помощь' или 'help' для справки")
+    print(f"{'='*50}\n")
+    
     vika = VikaOk()
     if len(sys.argv) > 1:
         query = " ".join(sys.argv[2:]) if sys.argv[1] == "--query" else " ".join(sys.argv[1:])
@@ -276,11 +407,15 @@ def main():
     print(vika.diagnose())
     while True:
         try:
-            inp = input("BAS: ").strip()
+            inp = input("\nBAS: ").strip()
             if not inp: continue
-            if inp.lower() in ["exit", "quit"]: break
-            print(f"\nVIKA: {vika.ask(inp)}\n")
-        except (KeyboardInterrupt, EOFError): break
+            if inp.lower() in ["exit", "quit", "выход"]:
+                print("\n👋 Пока, хозяин!\n")
+                break
+            print(f"\nVIKA: {vika.ask(inp)}")
+        except (KeyboardInterrupt, EOFError): 
+            print("\n\n👋 Пока, хозяин!\n")
+            break
         except Exception as e: print(f"[!] {e}")
 
 if __name__ == "__main__":

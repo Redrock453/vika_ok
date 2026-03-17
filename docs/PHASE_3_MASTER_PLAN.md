@@ -51,4 +51,4 @@ Phase 3 is the final step towards **Full Combat Readiness**. It transforms Vika 
 3. Follow `docs/QDRANT_SETUP_GUIDE.md` to begin integration.
 
 *Created 15 березня 2026*
-*For в/ч А7022 | Позывной БАС*
+*For подразделение БАС | Позывной БАС*

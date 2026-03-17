@@ -96,4 +96,4 @@ Use the dashboard to:
 3. Run the migration script (to be provided in Day 1 of Phase 3).
 
 *Created 15 березня 2026*
-*For в/ч А7022 | Позывной БАС*
+*For подразделение БАС | Позывной БАС*

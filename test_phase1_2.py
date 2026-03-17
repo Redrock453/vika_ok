@@ -417,7 +417,7 @@ class FunctionalTestSuite:
         try:
             # 1. Document preparation
             sample_doc = """
-            Vika is an AI assistant for в/ч А7022.
+            Vika is an AI assistant for подразделение БАС.
             She can analyze documents using RAG (Retrieval-Augmented Generation).
             The system uses Gemini 2.5 Flash as the primary model.
             Ollama provides local fallback capability.

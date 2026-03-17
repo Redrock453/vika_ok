@@ -63,4 +63,4 @@ def fetch_file_content(file_url):
 3. Test Vika's ability to summarize a complex codebase (e.g., this project).
 
 *Created 15 березня 2026*
-*For в/ч А7022 | Позывной БАС*
+*For подразделение БАС | Позывной БАС*

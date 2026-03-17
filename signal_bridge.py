@@ -25,8 +25,8 @@ class SignalGROM:
         
         # Локальные пути к бинарникам
         self.base_dir = Path(__file__).parent.absolute()
-        self.java_bin = self.base_dir / "bin" / "java" / "jdk-21.0.2+13" / "bin" / "java.exe"
-        self.signal_cli_bin = self.base_dir / "bin" / "signal" / "signal-cli-0.14.1" / "bin" / "signal-cli.bat"
+        self.java_bin = self.base_dir / "bin" / "java" / "jdk-25" / "bin" / "java.exe"
+        self.signal_cli_bin = self.base_dir / "bin" / "signal-cli-0.14.1" / "bin" / "signal-cli.bat"
         
         # Регулярки для фильтрации PII
         self.pii_patterns = [
@@ -45,7 +45,7 @@ class SignalGROM:
         print(f"[!] ЗАПУСК ДЕМОНА СИГНАЛА ДЛЯ НОМЕРА {self.bot_num}...")
         # Устанавливаем JAVA_HOME для батника signal-cli
         env = os.environ.copy()
-        env["JAVA_HOME"] = str(self.base_dir / "bin" / "java" / "jdk-21.0.2+13")
+        env["JAVA_HOME"] = str(self.base_dir / "bin" / "java" / "jdk-25")
         
         cmd = f'"{self.signal_cli_bin}" -u {self.bot_num} daemon --jsonrpc'
         

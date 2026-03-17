@@ -2,55 +2,55 @@ import os
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
 from agent import VikaOk
 from dotenv import load_dotenv
+from pathlib import Path
 
 # Загрузка настроек
-load_dotenv()
+BASE_DIR = Path(__file__).parent.absolute()
+ENV_PATH = BASE_DIR / ".env"
+load_dotenv(ENV_PATH)
+
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-ADMIN_ID = os.getenv("TELEGRAM_ADMIN_ID") # Для безопасности, чтобы только ты мог ей командовать
 
-logging.basicConfig(level=logging.INFO)
+# Логи в минимум
+logging.basicConfig(level=logging.WARNING)
 
-# Мозги Вики
+# Мозги Вики (версия v9.1)
 vika = VikaOk()
 
 # Инициализация бота
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    if ADMIN_ID and str(message.from_user.id) != ADMIN_ID:
-        await message.answer("Доступ запрещен. Я работаю только на БАС.")
-        return
-    await message.answer("Вика_Ok v5.2 в строю. Командуй, Вячеслав.")
-
 @dp.message()
 async def handle_message(message: types.Message):
-    if ADMIN_ID and str(message.from_user.id) != ADMIN_ID:
-        return
-
-    # Показываем, что Вика думает
+    text = message.text.strip()
+    
+    # Визуальный статус
     await bot.send_chat_action(message.chat.id, "typing")
     
-    # Запрос к мозгам
-    query = message.text
-    response = vika.ask(query)
+    # Запрос к ядру (v9.1)
+    response = vika.ask(text)
     
-    # Если ответ слишком длинный (например, дамп системы), режем на куски
-    if len(response) > 4000:
-        for x in range(0, len(response), 4000):
-            await message.answer(response[x:x+4000])
-    else:
-        await message.answer(response)
+    # Отправка ответа
+    await message.answer(response)
 
 async def main():
-    print(f"\n[!] VIKA TELEGRAM BOT STARTED")
-    if not ADMIN_ID:
-        print("[WARN] ADMIN_ID не установлен! Бот будет отвечать ВСЕМ.")
-    await dp.start_polling(bot)
+    print(f"\n==================================================")
+    print(f"   🤖 VIKA_OK TG-BOT v9.1 — DOMINATOR ACTIVE")
+    print(f"==================================================\n")
+    
+    # Бесконечный цикл, чтобы перебивать старого бота
+    while True:
+        try:
+            await dp.start_polling(bot)
+        except Exception as e:
+            print(f"[!] Ошибка: {e}. Перезапуск через 5 сек...")
+            await asyncio.sleep(5)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        print("\n👋 Бот выключен.\n")

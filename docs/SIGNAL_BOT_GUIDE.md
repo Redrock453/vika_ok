@@ -66,4 +66,4 @@ def is_authorized(number):
 3. Test end-to-end encryption from a mobile device to Vika.
 
 *Created 15 березня 2026*
-*For в/ч А7022 | Позывной БАС*
+*For подразделение БАС | Позывной БАС*

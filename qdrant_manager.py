@@ -95,7 +95,7 @@ if __name__ == "__main__":
     
     # 2. Upsert dummy data
     manager.upsert_documents(
-        chunks=["Vika is an AI assistant.", "She works for unit A7022."],
+        chunks=["Vika is an AI assistant.", "She works for подразделение БАС."],
         embeddings=[test_vector, test_vector],
         source_name="test_doc"
     )

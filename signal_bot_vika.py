@@ -33,8 +33,8 @@ SIGNAL_NUMBER = os.getenv('SIGNAL_NUMBER', '+380734311153')
 MASTER_NUMBER = os.getenv('TELEGRAM_ADMIN_ID') # Можем переиспользовать или создать MASTER_SIGNAL_NUMBER
 
 # Пути к бинарникам (Windows адаптировано)
-JAVA_HOME = str(BASE_DIR / "bin" / "java" / "jdk-21.0.2+13")
-SIGNAL_CLI_BAT = str(BASE_DIR / "bin" / "signal" / "signal-cli-0.14.1" / "bin" / "signal-cli.bat")
+JAVA_HOME = str(BASE_DIR / "bin" / "java" / "jdk-25")
+SIGNAL_CLI_BAT = str(BASE_DIR / "bin" / "signal-cli-0.14.1" / "bin" / "signal-cli.bat")
 PYTHON_EXE = str(BASE_DIR / "venv" / "Scripts" / "python.exe")
 VIKA_SCRIPT = str(BASE_DIR / "agent.py")
 
