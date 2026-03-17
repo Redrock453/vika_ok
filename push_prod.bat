@@ -1,9 +1,7 @@
 @echo off
 cd /d "%~dp0" || exit /b 1
-git add -A
-git commit -m "🚀 auto-push prod"
-git push origin dev
-git checkout main
-git merge dev --no-edit
+echo [PROD] Pushing to main branch...
+git add .
+git commit -m "prod: sync"
 git push origin main
-git checkout dev
+echo [OK]
