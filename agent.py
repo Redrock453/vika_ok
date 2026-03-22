@@ -1,14 +1,10 @@
 import os
 import sys
-import io
 import subprocess
-import time
-import re
 import socket
 import warnings
 import logging
 import requests
-import json
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -34,7 +30,7 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-VERSION = 'v11.3-CONTEXT'
+VERSION = 'v11.4-NO-OLLAMA'
 
 class VikaOk:
     def __init__(self):
@@ -76,22 +72,11 @@ class VikaOk:
 
     def scan_environment(self) -> dict:
         info = {
-            'platform': sys.platform,
-            'ollama_running': False,
-            'ollama_models': [],
-            'qdrant_running': False,
             'groq': bool(os.getenv('GROQ_API_KEY')),
             'openrouter': bool(os.getenv('OPENROUTER_API_KEY')),
             'gemini': bool(os.getenv('GEMINI_API_KEY')),
+            'qdrant_running': False,
         }
-        try:
-            s = socket.create_connection(('127.0.0.1', 11434), timeout=0.5); s.close()
-            info['ollama_running'] = True
-            res = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=2)
-            if res.returncode == 0:
-                info['ollama_models'] = [l.split()[0] for l in res.stdout.strip().splitlines()[1:] if l.strip()]
-        except Exception:
-            pass
         try:
             s = socket.create_connection(('127.0.0.1', 6333), timeout=0.5); s.close()
             info['qdrant_running'] = True
@@ -152,21 +137,6 @@ class VikaOk:
             print(f'[!] Gemini error: {e}')
             return None
 
-    def _ask_ollama(self, system_prompt: str, query: str):
-        try:
-            url = 'http://localhost:11434/api/chat'
-            payload = {
-                'model': 'llama3.2:3b',
-                'messages': self._build_messages(system_prompt, query),
-                'stream': False
-            }
-            response = requests.post(url, json=payload, timeout=60)
-            if response.status_code == 200:
-                return response.json().get('message', {}).get('content', '[!] Пустой ответ от Ollama.')
-            return f'[!] Ошибка Ollama: {response.status_code}'
-        except Exception as e:
-            return f'[!] Ошибка при обращении к Ollama: {e}'
-
     def ask(self, query: str) -> str:
         q_low = query.lower().strip()
 
@@ -178,8 +148,8 @@ class VikaOk:
                 f"Groq: {'✅' if ei['groq'] else '❌'} | "
                 f"OpenRouter: {'✅' if ei['openrouter'] else '❌'} | "
                 f"Gemini: {'✅' if ei['gemini'] else '❌'} | "
-                f"Ollama: {'✅' if ei['ollama_running'] else '❌'}\n"
-                f"Моделей в памяти: {len(self.history) // 2}"
+                f"Qdrant: {'✅' if ei['qdrant_running'] else '❌'}\n"
+                f"История: {len(self.history) // 2} сообщений"
             )
 
         rag_context = ''
@@ -207,13 +177,12 @@ class VikaOk:
             self._ask_groq(system_prompt, query)
             or self._ask_openrouter(system_prompt, query)
             or self._ask_gemini(system_prompt, query)
-            or self._ask_ollama(system_prompt, query)
         )
 
         if not res:
             res = '❌ Все провайдеры недоступны.'
 
-        self.history.append({'role': 'user',      'content': query})
+        self.history.append({'role': 'user', 'content': query})
         self.history.append({'role': 'assistant', 'content': res})
 
         if len(self.history) > self.MAX_HISTORY * 2:
