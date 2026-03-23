@@ -8,7 +8,7 @@ from agent import VikaOk
 from dotenv import load_dotenv
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(name)s %(levelname)s %(message)s", handlers=[logging.FileHandler("/app/bot.log"), logging.StreamHandler()])
 logger = logging.getLogger('VikaBot')
 BASE_DIR = Path(__file__).parent.absolute()
 load_dotenv(BASE_DIR / '.env')
