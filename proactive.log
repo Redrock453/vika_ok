@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/root/vika_ok/proactive_study.py", line 4, in <module>
+    from aiogram import Bot
+ModuleNotFoundError: No module named 'aiogram'

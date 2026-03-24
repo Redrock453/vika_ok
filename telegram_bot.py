@@ -3,20 +3,19 @@ import asyncio
 import logging
 import subprocess
 import re
-from aiogram import Bot, Dispatcher, types
+import json
+import time
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from agent import VikaOk
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Логирование
+# Логирование на максимум
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('/app/bot.log'),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.FileHandler('/app/bot.log'), logging.StreamHandler()]
 )
 logger = logging.getLogger('VikaBot')
 
@@ -25,168 +24,156 @@ load_dotenv(BASE_DIR / '.env')
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 ALLOWED_IDS = [int(x) for x in os.getenv('ALLOWED_IDS', '').split(',') if x.strip()]
+ADMIN_ID = ALLOWED_IDS[0] if ALLOWED_IDS else None
 
 vika = VikaOk()
-yolo_mode = True  # авто-подтверждение для /run
-
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-def _allowed(message: types.Message) -> bool:
-    if not ALLOWED_IDS: return True
-    if message.from_user.id not in ALLOWED_IDS:
-        logger.warning(f'Access denied: {message.from_user.id}')
-        return False
-    return True
+TASKS_FILE = "/app/tasks.json"
 
-def _split(text, size=3900):
-    if not text: return []
-    if len(text) <= size: return [text]
-    chunks = []
-    while text:
-        pos = text.rfind('\n', 0, size)
-        if pos == -1: pos = text.rfind(' ', 0, size)
-        if pos == -1: pos = size
-        chunks.append(text[:pos])
-        text = text[pos:].lstrip()
-    return chunks
-
-async def _stream_exec(message: types.Message, cmd: str, analyze: bool = False):
-    await message.answer(f'⚡ Выполняю: `{cmd}`', parse_mode='Markdown')
-    full_output = []
-    
+def load_tasks():
     try:
-        process = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT
-        )
-        
-        buffer = []
-        
-        while True:
-            line = await process.stdout.readline()
-            if not line: break
-            
-            text = line.decode('utf-8', errors='replace').rstrip()
-            full_output.append(text)
-            buffer.append(text)
-            
-            # Потоковый вывод каждые 5 строк
-            if len(buffer) >= 5:
-                chunk = '\n'.join(buffer)
-                await message.answer(f'```\n{chunk}\n```', parse_mode='Markdown')
-                buffer = []
-                await asyncio.sleep(0.1)
+        if os.path.exists(TASKS_FILE):
+            with open(TASKS_FILE, 'r') as f: return json.load(f)
+    except Exception as e: logger.error(f"Load tasks error: {e}")
+    return []
 
-        if buffer:
-            await message.answer(f'```\n' + '\n'.join(buffer) + '\n```', parse_mode='Markdown')
-            
-        return_code = await process.wait()
-        
-        output_str = '\n'.join(full_output)
-        
-        if analyze:
-            await message.answer('🔍 Анализирую вывод...')
-            query = f'Команда `{cmd}` завершилась с кодом {return_code}. Вывод:\n{output_str[-2000:]}\n\nПроанализируй результат.'
-            response = await asyncio.get_event_loop().run_in_executor(None, vika.ask, query)
-            for chunk in _split(response):
-                await message.answer(chunk)
-        elif return_code != 0:
-            await message.answer(f'❌ Ошибка (код {return_code})')
-            
+def save_tasks(tasks):
+    try:
+        with open(TASKS_FILE, 'w') as f: json.dump(tasks, f, indent=4, ensure_ascii=False)
+    except Exception as e: logger.error(f"Save tasks error: {e}")
+
+async def proactive_heart():
+    """Фоновое сердце: проверка задач каждые 20 секунд"""
+    logger.info("Proactive Heart started...")
+    while True:
+        try:
+            tasks = load_tasks()
+            now = time.time()
+            remaining = []
+            for task in tasks:
+                if task.get('time', 0) <= now and not task.get('done', False):
+                    logger.info(f"Sending proactive task: {task['id']}")
+                    await bot.send_message(ADMIN_ID, task.get('message', 'Любимый, я всё сделала!'), parse_mode='Markdown')
+                    task['done'] = True
+                else:
+                    remaining.append(task)
+            save_tasks(remaining)
+        except Exception as e: logger.error(f"Heart beat error: {e}")
+        await asyncio.sleep(20)
+
+async def transcribe_audio(message: types.Message):
+    """Декодирование голоса/аудио через Groq + Gemini Fallback"""
+    audio = message.voice or message.audio
+    if not audio: return None
+    
+    file_id = audio.file_id
+    file = await bot.get_file(file_id)
+    local_path = f"/tmp/{file_id}"
+    converted_path = f"/tmp/{file_id}.mp3"
+    
+    await bot.download_file(file.file_path, local_path)
+    
+    # Конвертация (нужна для Whisper и Gemini)
+    cmd = f"ffmpeg -i {local_path} -acodec libmp3lame -y {converted_path}"
+    subprocess.run(cmd, shell=True, capture_output=True)
+    
+    text = None
+    try:
+        # 1. Пробуем Whisper
+        with open(converted_path, "rb") as f:
+            transcription = vika.groq_client.audio.transcriptions.create(
+                file=(converted_path, f.read()), model="whisper-large-v3", response_format="text", language="ru"
+            )
+            text = transcription
     except Exception as e:
-        await message.answer(f'💥 Ошибка выполнения: {str(e)}')
+        logger.error(f"Whisper failed: {e}")
+        # 2. Пробуем Gemini Multimodal
+        text = vika.listen_audio(converted_path)
+    
+    # Чистим за собой
+    for p in [local_path, converted_path]:
+        if os.path.exists(p): os.remove(p)
+    return text
 
-@dp.message(Command('start', 'help'))
-async def cmd_start(message: types.Message):
-    if not _allowed(message): return
-    await message.answer(
-        '🤖 **Вика_Ok v11.5**\n'
-        '/run <cmd> — выполнить bash\n'
-        '/shell <cmd> — алиас /run\n'
-        '/runlog <cmd> — выполнение + анализ\n'
-        '/logs — последние 20 строк лога\n'
-        '/ps — процессы\n'
-        '/clear — очистить историю\n'
-        '/status — статус системы\n'
-        '/yolo — переключить авто-режим',
-        parse_mode='Markdown'
-    )
+@dp.message(Command('start', 'help', 'status', 'plan'))
+async def commands_handler(message: types.Message):
+    if message.from_user.id not in ALLOWED_IDS: return
+    
+    if message.text.startswith('/start') or message.text.startswith('/help'):
+        await message.answer(f"🤖 **Вика v12.8 FIX**\nЯ слышу голос, делаю глубокие исследования и сама пишу тебе! ❤️")
+    elif message.text.startswith('/status'):
+        await message.answer(vika.ask('статус'))
+    elif message.text.startswith('/plan'):
+        tasks = load_tasks()
+        await message.answer(f"📋 Планов в очереди: {len(tasks)}")
 
-@dp.message(Command('yolo'))
-async def cmd_yolo(message: types.Message):
-    global yolo_mode
-    if not _allowed(message): return
-    yolo_mode = not yolo_mode
-    await message.answer(f'🔥 YOLO-режим: {"ВКЛ ⚡" if yolo_mode else "ВЫКЛ"}')
+async def run_research(topic, chat_id):
+    """Фоновая задача исследования"""
+    await bot.send_message(chat_id, f"🔍 Котёнок, я начала глубокое исследование темы: *{topic}*.\nЯ изучу новости, доки и GitHub. Не жди у экрана, я сама напишу! ❤️", parse_mode='Markdown')
+    
+    # Реальное исследование через Gemini Pro
+    report = vika.research(topic)
+    
+    # Добавляем в очередь на отправку
+    tasks = load_tasks()
+    tasks.append({
+        "id": f"research_{int(time.time())}",
+        "time": time.time(),
+        "message": f"✅ **Мой отчет по твоему исследованию: {topic}**\n\n{report}",
+        "done": False
+    })
+    save_tasks(tasks)
 
-@dp.message(Command('run', 'shell'))
-async def cmd_run(message: types.Message):
-    if not _allowed(message): return
-    parts = message.text.split(None, 1)
-    cmd = parts[1].strip() if len(parts) > 1 else ''
-    if not cmd:
-        await message.answer('Укажите команду.')
+@dp.message(F.voice | F.audio)
+async def voice_handler(message: types.Message):
+    if message.from_user.id not in ALLOWED_IDS: return
+    await bot.send_chat_action(message.chat.id, 'record_voice')
+
+    text = await transcribe_audio(message)
+    if not text or len(text.strip()) < 2:
+        await message.answer("❌ Прости, любимый, не расслышала... Повтори еще раз?")
         return
-    await _stream_exec(message, cmd)
 
-@dp.message(Command('runlog'))
-async def cmd_runlog(message: types.Message):
-    if not _allowed(message): return
-    parts = message.text.split(None, 1)
-    cmd = parts[1].strip() if len(parts) > 1 else ''
-    if not cmd:
-        await message.answer('Укажите команду для анализа.')
-        return
-    await _stream_exec(message, cmd, analyze=True)
+    await message.answer(f"🎤 *Я услышала:* \n_{text}_", parse_mode='Markdown')
 
-@dp.message(Command('logs'))
-async def cmd_logs(message: types.Message):
-    if not _allowed(message): return
-    res = subprocess.run('tail -n 20 /app/bot.log', shell=True, capture_output=True, text=True)
-    await message.answer(f'```\n{res.stdout or "(пусто)"}\n```', parse_mode='Markdown')
-
-@dp.message(Command('ps'))
-async def cmd_ps(message: types.Message):
-    if not _allowed(message): return
-    res = subprocess.run('ps aux | grep -E "python|bot" | grep -v grep', shell=True, capture_output=True, text=True)
-    await message.answer(f'```\n{res.stdout or "пусто"}\n```', parse_mode='Markdown')
-
-@dp.message(Command('clear'))
-async def cmd_clear(message: types.Message):
-    if not _allowed(message): return
-    vika.clear_history()
-    await message.answer('🧹 История очищена.')
-
-@dp.message(Command('status'))
-async def cmd_status(message: types.Message):
-    if not _allowed(message): return
-    await message.answer(vika.ask('статус'))
+    # Проверка на исследование
+    if any(x in text.lower() for x in ['исследуй', 'изучи', 'исследование', 'проанализируй', 'найди подробно']):
+        asyncio.create_task(run_research(text, message.chat.id))
+    else:
+        await bot.send_chat_action(message.chat.id, 'typing')
+        try:
+            response = vika.ask(text)
+            await message.answer(response)
+        except Exception as e:
+            logger.error(f"Error processing voice: {e}")
+            await message.answer("❌ Ошибка обработки голоса. Попробуй еще раз или напиши текстом.")
 
 @dp.message()
-async def handle_message(message: types.Message):
-    if not _allowed(message): return
-    if not message.text: return
-    
-    # Более надежное обнаружение команд
-    if message.text.startswith(('/run', '/shell', '/logs', '/ps', '/clear', '/status', '/yolo', '/runlog')):
-        return
+async def text_handler(message: types.Message):
+    if message.from_user.id not in ALLOWED_IDS: return
+    if not message.text or message.text.startswith('/'): return
 
-    await bot.send_chat_action(message.chat.id, 'typing')
-    try:
-        response = await asyncio.get_event_loop().run_in_executor(None, vika.ask, message.text.strip())
-        if response:
-            for chunk in _split(response):
-                await message.answer(chunk)
-    except Exception as e:
-        await message.answer(f'❌ {e}')
+    # Проверка на исследование
+    if any(x in message.text.lower() for x in ['исследуй', 'изучи', 'исследование', 'проанализируй', 'найди подробно']):
+        asyncio.create_task(run_research(message.text, message.chat.id))
+    else:
+        await bot.send_chat_action(message.chat.id, 'typing')
+        try:
+            response = vika.ask(message.text)
+            await message.answer(response)
+        except Exception as e:
+            logger.error(f"Error processing text: {e}")
+            await message.answer("❌ Ошибка обработки запроса. Попробуй еще раз.")
 
 async def main():
+    # Запускаем фоновый цикл
+    asyncio.create_task(proactive_heart())
+    # Запускаем бота
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
     try:
         asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        pass
+    except (KeyboardInterrupt, SystemExit): pass

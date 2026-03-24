@@ -1,0 +1,65 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Gemini//UAV Study Plan//RU
+CALSCALE:GREGORIAN
+BEGIN:VEVENT
+SUMMARY:Изучение теории и основ автопилота
+DTSTART;TZID=Europe/Kyiv:20260323T100000
+DTEND;TZID=Europe/Kyiv:20260323T120000
+RRULE:FREQ=WEEKLY
+DESCRIPTION:Изучение теории и основ автопилота (2 часа)
+BEGIN:VALARM
+TRIGGER:-PT15M
+ACTION:DISPLAY
+DESCRIPTION:Напоминание: скоро занятие!
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+SUMMARY:Симуляция автопилота на Gazebo или Dronekit
+DTSTART;TZID=Europe/Kyiv:20260324T140000
+DTEND;TZID=Europe/Kyiv:20260324T160000
+RRULE:FREQ=WEEKLY
+DESCRIPTION:Симуляция автопилота на Gazebo или Dronekit (2 часа)
+BEGIN:VALARM
+TRIGGER:-PT15M
+ACTION:DISPLAY
+DESCRIPTION:Напоминание: скоро занятие!
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+SUMMARY:Изучение программирования (Python / C++)
+DTSTART;TZID=Europe/Kyiv:20260325T100000
+DTEND;TZID=Europe/Kyiv:20260325T120000
+RRULE:FREQ=WEEKLY
+DESCRIPTION:Изучение программирования на языке Python или C++ (2 часа)
+BEGIN:VALARM
+TRIGGER:-PT15M
+ACTION:DISPLAY
+DESCRIPTION:Напоминание: скоро занятие!
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+SUMMARY:Симуляция автопилота на PX4 Simulator
+DTSTART;TZID=Europe/Kyiv:20260326T140000
+DTEND;TZID=Europe/Kyiv:20260326T160000
+RRULE:FREQ=WEEKLY
+DESCRIPTION:Симуляция автопилота на PX4 Simulator (2 часа)
+BEGIN:VALARM
+TRIGGER:-PT15M
+ACTION:DISPLAY
+DESCRIPTION:Напоминание: скоро занятие!
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+SUMMARY:Обзор и анализ прогресса, корректировка плана
+DTSTART;TZID=Europe/Kyiv:20260327T120000
+DTEND;TZID=Europe/Kyiv:20260327T130000
+RRULE:FREQ=WEEKLY
+DESCRIPTION:Обзор и анализ прогресса, корректировка плана (1 час)
+BEGIN:VALARM
+TRIGGER:-PT15M
+ACTION:DISPLAY
+DESCRIPTION:Напоминание: скоро занятие!
+END:VALARM
+END:VEVENT
+END:VCALENDAR
