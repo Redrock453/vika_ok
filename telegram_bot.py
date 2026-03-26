@@ -83,8 +83,7 @@ async def handle_voice(message: types.Message):
         subprocess.run(['ffmpeg', '-i', ogg_path, '-ar', '16000', wav_path, '-y'], check=True, capture_output=True)
         
         try:
-            # Используем Whisper через DO-AI клиент (если он поддерживает audio.transcriptions)
-            # Если нет — будем использовать OpenAI напрямую
+            # Используем Whisper через DO-AI клиент
             with open(wav_path, "rb") as audio_file:
                 transcript = vika.do_client.audio.transcriptions.create(
                     model="whisper-1", 
@@ -105,7 +104,6 @@ async def handle_voice(message: types.Message):
             await text_to_speech(res, reply_voice_path)
             
             await message.reply_voice(types.FSInputFile(reply_voice_path))
-            # Также дублируем текстом, если ответ длинный
             if len(res) > 200:
                 await message.answer(res)
 
@@ -120,17 +118,15 @@ async def handle_text(message: types.Message):
         res = await loop.run_in_executor(None, vika.ask, message.text)
         
         if res:
-            # Для текста тоже добавим возможность голосового ответа (опционально)
-            # Если сообщение короткое — просто текст. Если длинное или по желанию — голос.
-            # Но по умолчанию на текст отвечаем текстом, чтобы не спамить аудио.
+            # Для текста тоже добавим возможность голосового ответа
             for chunk in _split(res):
                 await message.answer(chunk)
             
-            # Если хочешь, чтобы она ВСЕГДА говорила, раскомментируй это:
-            # with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-            #     await text_to_speech(res, f.name)
-            #     await message.answer_voice(types.FSInputFile(f.name))
-            #     os.unlink(f.name)
+            # Включаем озвучку для ВСЕХ ответов
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                await text_to_speech(res, f.name)
+                await message.answer_voice(types.FSInputFile(f.name))
+                os.unlink(f.name)
 
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
@@ -143,3 +139,4 @@ if __name__ == '__main__':
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         pass
+# VOICE MODE - додати перед if __name__
