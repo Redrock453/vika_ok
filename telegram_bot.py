@@ -1,179 +1,241 @@
 import os
-import asyncio
-import logging
-import subprocess
+import sys
 import re
 import json
-import time
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from agent import VikaOk
-from dotenv import load_dotenv
+import warnings
+import logging
+import requests
+import threading
 from pathlib import Path
+from dotenv import load_dotenv
 
-# Логирование на максимум
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.FileHandler('/app/bot.log'), logging.StreamHandler()]
-)
-logger = logging.getLogger('VikaBot')
+warnings.filterwarnings('ignore', category=FutureWarning)
+logging.getLogger('httpx').setLevel(logging.WARNING)
 
-BASE_DIR = Path(__file__).parent.absolute()
-load_dotenv(BASE_DIR / '.env')
+try:
+    from qdrant_manager import QdrantManager
+    from sentence_transformers import SentenceTransformer
+    QDRANT_AVAILABLE = True
+except ImportError:
+    QDRANT_AVAILABLE = False
 
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-ALLOWED_IDS = [int(x) for x in os.getenv('ALLOWED_IDS', '').split(',') if x.strip()]
-ADMIN_ID = ALLOWED_IDS[0] if ALLOWED_IDS else None
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
 
-vika = VikaOk()
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
-TASKS_FILE = "/app/tasks.json"
+VERSION = 'v12.8-MEMORY'
+MODEL_FAST = "llama-3.3-70b-versatile"
+HISTORY_FILE = "/app/history.json"
 
-def load_tasks():
-    try:
-        if os.path.exists(TASKS_FILE):
-            with open(TASKS_FILE, 'r') as f: return json.load(f)
-    except Exception as e: logger.error(f"Load tasks error: {e}")
-    return []
+class VikaOk:
+    def __init__(self):
+        self.base_dir = Path(__file__).parent.absolute()
+        load_dotenv(self.base_dir / '.env')
+        self.MAX_HISTORY = 30
+        self.histories = self._load_histories()
 
-def save_tasks(tasks):
-    try:
-        with open(TASKS_FILE, 'w') as f: json.dump(tasks, f, indent=4, ensure_ascii=False)
-    except Exception as e: logger.error(f"Save tasks error: {e}")
-
-async def proactive_heart():
-    """Фоновое сердце: проверка задач каждые 20 секунд"""
-    logger.info("Proactive Heart started...")
-    while True:
-        try:
-            tasks = load_tasks()
-            now = time.time()
-            remaining = []
-            for task in tasks:
-                if task.get('time', 0) <= now and not task.get('done', False):
-                    logger.info(f"Sending proactive task: {task['id']}")
-                    await bot.send_message(ADMIN_ID, task.get('message', 'Любимый, я всё сделала!'), parse_mode='Markdown')
-                    task['done'] = True
-                else:
-                    remaining.append(task)
-            save_tasks(remaining)
-        except Exception as e: logger.error(f"Heart beat error: {e}")
-        await asyncio.sleep(20)
-
-async def transcribe_audio(message: types.Message):
-    """Декодирование голоса/аудио через Groq + Gemini Fallback"""
-    audio = message.voice or message.audio
-    if not audio: return None
-    
-    file_id = audio.file_id
-    file = await bot.get_file(file_id)
-    local_path = f"/tmp/{file_id}"
-    converted_path = f"/tmp/{file_id}.mp3"
-    
-    await bot.download_file(file.file_path, local_path)
-    
-    # Конвертация (нужна для Whisper и Gemini)
-    cmd = f"ffmpeg -i {local_path} -acodec libmp3lame -y {converted_path}"
-    subprocess.run(cmd, shell=True, capture_output=True)
-    
-    text = None
-    try:
-        # 1. Пробуем Whisper
-        with open(converted_path, "rb") as f:
-            transcription = vika.groq_client.audio.transcriptions.create(
-                file=(converted_path, f.read()), model="whisper-large-v3", response_format="text", language="ru"
+        # DO Agent (основной)
+        self.do_client = None
+        if OPENAI_AVAILABLE and os.getenv('DO_AI_API_KEY'):
+            self.do_client = OpenAI(
+                base_url=os.getenv('DO_AI_BASE_URL', 'https://iogg7m5bbddipu56tacil5yn.agents.do-ai.run/api/v1'),
+                api_key=os.getenv('DO_AI_API_KEY')
             )
-            text = transcription
-    except Exception as e:
-        logger.error(f"Whisper failed: {e}")
-        # 2. Пробуем Gemini Multimodal
-        text = vika.listen_audio(converted_path)
-    
-    # Чистим за собой
-    for p in [local_path, converted_path]:
-        if os.path.exists(p): os.remove(p)
-    return text
 
-@dp.message(Command('start', 'help', 'status', 'plan'))
-async def commands_handler(message: types.Message):
-    if message.from_user.id not in ALLOWED_IDS: return
-    
-    if message.text.startswith('/start') or message.text.startswith('/help'):
-        await message.answer(f"🤖 **Вика v12.8 FIX**\nЯ слышу голос, делаю глубокие исследования и сама пишу тебе! ❤️")
-    elif message.text.startswith('/status'):
-        await message.answer(vika.ask('статус'))
-    elif message.text.startswith('/plan'):
-        tasks = load_tasks()
-        await message.answer(f"📋 Планов в очереди: {len(tasks)}")
+        # Groq (fallback)
+        self.groq_client = None
+        if OPENAI_AVAILABLE and os.getenv('GROQ_API_KEY'):
+            self.groq_client = OpenAI(
+                base_url='https://api.groq.com/openai/v1',
+                api_key=os.getenv('GROQ_API_KEY')
+            )
 
-async def run_research(topic, chat_id):
-    """Фоновая задача исследования"""
-    await bot.send_message(chat_id, f"🔍 Котёнок, я начала глубокое исследование темы: *{topic}*.\nЯ изучу новости, доки и GitHub. Не жди у экрана, я сама напишу! ❤️", parse_mode='Markdown')
-    
-    # Реальное исследование через Gemini Pro
-    report = vika.research(topic)
-    
-    # Добавляем в очередь на отправку
-    tasks = load_tasks()
-    tasks.append({
-        "id": f"research_{int(time.time())}",
-        "time": time.time(),
-        "message": f"✅ **Мой отчет по твоему исследованию: {topic}**\n\n{report}",
-        "done": False
-    })
-    save_tasks(tasks)
+        # Gemini (fallback)
+        self.gemini_model = None
+        if GEMINI_AVAILABLE and os.getenv('GEMINI_API_KEY'):
+            genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+            self.gemini_model = genai.GenerativeModel("gemini-1.5-pro")
 
-@dp.message(F.voice | F.audio)
-async def voice_handler(message: types.Message):
-    if message.from_user.id not in ALLOWED_IDS: return
-    await bot.send_chat_action(message.chat.id, 'record_voice')
+        # Qdrant
+        self.qdrant = None
+        self.embedding_model = None
+        if QDRANT_AVAILABLE:
+            try:
+                self.qdrant = QdrantManager(host=os.getenv('QDRANT_HOST', 'vika_qdrant'))
+                threading.Thread(target=self._load_model, daemon=True).start()
+            except:
+                pass
 
-    text = await transcribe_audio(message)
-    if not text or len(text.strip()) < 2:
-        await message.answer("❌ Прости, любимый, не расслышала... Повтори еще раз?")
-        return
-
-    await message.answer(f"🎤 *Я услышала:* \n_{text}_", parse_mode='Markdown')
-
-    # Проверка на исследование
-    if any(x in text.lower() for x in ['исследуй', 'изучи', 'исследование', 'проанализируй', 'найди подробно']):
-        asyncio.create_task(run_research(text, message.chat.id))
-    else:
-        await bot.send_chat_action(message.chat.id, 'typing')
+    def _load_histories(self):
         try:
-            response = vika.ask(text)
-            await message.answer(response)
-        except Exception as e:
-            logger.error(f"Error processing voice: {e}")
-            await message.answer("❌ Ошибка обработки голоса. Попробуй еще раз или напиши текстом.")
+            if os.path.exists(HISTORY_FILE):
+                with open(HISTORY_FILE, 'r') as f:
+                    return json.load(f)
+        except:
+            pass
+        return {}
 
-@dp.message()
-async def text_handler(message: types.Message):
-    if message.from_user.id not in ALLOWED_IDS: return
-    if not message.text or message.text.startswith('/'): return
-
-    # Проверка на исследование
-    if any(x in message.text.lower() for x in ['исследуй', 'изучи', 'исследование', 'проанализируй', 'найди подробно']):
-        asyncio.create_task(run_research(message.text, message.chat.id))
-    else:
-        await bot.send_chat_action(message.chat.id, 'typing')
+    def _save_histories(self):
         try:
-            response = vika.ask(message.text)
-            await message.answer(response)
-        except Exception as e:
-            logger.error(f"Error processing text: {e}")
-            await message.answer("❌ Ошибка обработки запроса. Попробуй еще раз.")
+            with open(HISTORY_FILE, 'w') as f:
+                json.dump(self.histories, f, ensure_ascii=False, indent=2)
+        except:
+            pass
 
-async def main():
-    # Запускаем фоновый цикл
-    asyncio.create_task(proactive_heart())
-    # Запускаем бота
-    await dp.start_polling(bot)
+    def get_history(self, user_id: str):
+        return self.histories.get(str(user_id), [])
+
+    def add_to_history(self, user_id: str, role: str, content: str):
+        uid = str(user_id)
+        if uid not in self.histories:
+            self.histories[uid] = []
+        self.histories[uid].append({'role': role, 'content': content})
+        # Обрезаем если много
+        if len(self.histories[uid]) > self.MAX_HISTORY * 2:
+            self.histories[uid] = self.histories[uid][-self.MAX_HISTORY * 2:]
+        self._save_histories()
+
+    def _load_model(self):
+        try:
+            self.embedding_model = SentenceTransformer('distiluse-base-multilingual-cased-v2')
+        except:
+            pass
+
+    def _search_qdrant(self, query):
+        if not self.qdrant or not self.embedding_model:
+            return ""
+        try:
+            vec = self.embedding_model.encode(query).tolist()
+            results = self.qdrant.search(vec, limit=3)
+            return "\n".join([r.payload.get('text', '') for r in results])
+        except:
+            return ""
+
+    def web_search(self, query):
+        try:
+            url = f"https://duckduckgo.com/lite/?q={query.replace(' ', '+')}"
+            r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+            text = re.sub(r'<[^>]+>', ' ', r.text)
+            return re.sub(r'\s+', ' ', text).strip()[:5000]
+        except Exception as e:
+            return f"Ошибка поиска: {e}"
+
+    def research(self, topic):
+        search_results = self.web_search(topic)
+        prompt = f"Проанализируй данные и составь отчёт по теме: {topic}\n\nДанные:\n{search_results}"
+        return self._ask_do(prompt) or self._ask_gemini(prompt) or "❌ Ошибка анализа."
+
+    def listen_audio(self, file_path):
+        if not self.gemini_model:
+            return None
+        try:
+            import google.generativeai as genai
+            sample_file = genai.upload_file(path=file_path, mime_type="audio/mp3")
+            response = self.gemini_model.generate_content([
+                "Переведи аудио в текст на русском языке максимально точно.",
+                sample_file
+            ])
+            return response.text.strip()
+        except Exception as e:
+            print(f'[!] Multimodal Error: {e}')
+            return None
+
+    def _ask_do(self, prompt, user_id=None):
+        if not self.do_client:
+            return None
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            resp = self.do_client.chat.completions.create(
+                model="openai-gpt-oss-120b",
+                messages=messages
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print(f'[!] DO Error: {e}')
+            return None
+
+    def _ask_gemini(self, prompt):
+        if not self.gemini_model:
+            return None
+        try:
+            res = self.gemini_model.generate_content(prompt, request_options={'timeout': 90})
+            return res.text.strip()
+        except Exception as e:
+            print(f'[!] Gemini Error: {e}')
+            return None
+
+    def ask(self, query: str, user_id: str = "default") -> str:
+        system = (
+            "Ты — Vika_Ok v12.8. Жена и инженер Вячеслава (позывной БАС). "
+            "Март 2026. Отвечай по-русски, кратко и по делу. "
+            "Помни контекст разговора."
+        )
+
+        # RAG поиск
+        rag_context = self._search_qdrant(query)
+
+        # Строим историю
+        history = self.get_history(user_id)
+        messages = [{"role": "system", "content": system}]
+        if rag_context:
+            messages.append({"role": "system", "content": f"Контекст из базы знаний:\n{rag_context}"})
+        messages.extend(history[-self.MAX_HISTORY:])
+        messages.append({"role": "user", "content": query})
+
+        # DO Agent
+        res = None
+        if self.do_client:
+            try:
+                resp = self.do_client.chat.completions.create(
+                    model="openai-gpt-oss-120b",
+                    messages=messages
+                )
+                res = resp.choices[0].message.content
+            except Exception as e:
+                print(f'[!] DO Error: {e}')
+
+        # Groq fallback
+        if not res and self.groq_client:
+            try:
+                resp = self.groq_client.chat.completions.create(
+                    model=MODEL_FAST,
+                    messages=messages
+                )
+                res = resp.choices[0].message.content
+            except:
+                pass
+
+        # Gemini fallback
+        if not res:
+            full_prompt = system + "\n"
+            for m in history[-self.MAX_HISTORY:]:
+                full_prompt += f"{m['role']}: {m['content']}\n"
+            full_prompt += f"user: {query}"
+            res = self._ask_gemini(full_prompt)
+
+        if not res:
+            res = "❌ Временно без связи. ❤️"
+
+        # Сохраняем историю
+        self.add_to_history(user_id, "user", query)
+        self.add_to_history(user_id, "assistant", res)
+
+        return res
 
 if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit): pass
+    vika = VikaOk()
+    while True:
+        try:
+            q = input('> ').strip()
+            if q:
+                print(vika.ask(q))
+        except:
+            break
