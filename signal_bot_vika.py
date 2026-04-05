@@ -32,10 +32,19 @@ logger = logging.getLogger(__name__)
 SIGNAL_NUMBER = os.getenv('SIGNAL_NUMBER', '+380734311153')
 MASTER_NUMBER = os.getenv('TELEGRAM_ADMIN_ID') # Можем переиспользовать или создать MASTER_SIGNAL_NUMBER
 
-# Пути к бинарникам (Windows адаптировано)
-JAVA_HOME = str(BASE_DIR / "bin" / "java" / "jdk-25")
-SIGNAL_CLI_BAT = str(BASE_DIR / "bin" / "signal-cli-0.14.1" / "bin" / "signal-cli.bat")
-PYTHON_EXE = str(BASE_DIR / "venv" / "Scripts" / "python.exe")
+# Пути к бинарникам (кроссплатформенно)
+import platform
+IS_WINDOWS = platform.system() == "Windows"
+
+if IS_WINDOWS:
+    JAVA_HOME = os.getenv("JAVA_HOME", str(BASE_DIR / "bin" / "java" / "jdk-25"))
+    SIGNAL_CLI_BIN = str(BASE_DIR / "bin" / "signal-cli-0.14.1" / "bin" / "signal-cli.bat")
+    PYTHON_EXE = str(BASE_DIR / "venv" / "Scripts" / "python.exe")
+else:
+    JAVA_HOME = os.getenv("JAVA_HOME", "/usr/lib/jvm/default-java")
+    SIGNAL_CLI_BIN = os.getenv("SIGNAL_CLI_PATH", "signal-cli")
+    PYTHON_EXE = os.getenv("PYTHON_PATH", sys.executable)
+
 VIKA_SCRIPT = str(BASE_DIR / "agent.py")
 
 # Шифрование audit логов
@@ -68,31 +77,13 @@ def log_audit(msg_type: str, user: str, text: str, response: str = None):
 # === VIKA ИНТЕГРАЦИЯ ===
 async def ask_vika(question: str) -> str:
     try:
-        # Запускаем через подпроцесс с флагом --query
-        proc = await asyncio.create_subprocess_exec(
-            PYTHON_EXE,
-            VIKA_SCRIPT,
-            '--query',
-            question,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
-        except asyncio.TimeoutError:
-            proc.kill()
-            return "⏱️ Вика зависла на 90 сек. Проверь систему."
-        
-        response = stdout.decode('utf-8', errors='ignore').strip()
-        if not response:
-            err = stderr.decode('utf-8', errors='ignore').strip()
-            logger.error(f"Vika Error: {err}")
-            return "❌ Ошибка при генерации ответа."
-            
-        return response
+        # Импортируем напрямую вместо subprocess — agent.py не поддерживает --query CLI
+        sys.path.insert(0, str(BASE_DIR))
+        from agent import VikaOk
+        vika = VikaOk()
+        return vika.ask(question)
     except Exception as e:
-        logger.error(f"Vika exec error: {e}")
+        logger.error(f"Vika ask error: {e}")
         return f"❌ Сбой моста: {str(e)}"
 
 # === SIGNAL BOT ===
@@ -103,7 +94,7 @@ async def run_signal_bot():
     env = os.environ.copy()
     env["JAVA_HOME"] = JAVA_HOME
     
-    cmd = f'"{SIGNAL_CLI_BAT}" -u {SIGNAL_NUMBER} daemon --jsonrpc'
+    cmd = f'"{SIGNAL_CLI_BIN}" -u {SIGNAL_NUMBER} daemon --jsonrpc'
     
     logger.info(f"Команда: {cmd}")
     

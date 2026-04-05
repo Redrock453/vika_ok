@@ -70,9 +70,6 @@ def search_web(query: str) -> str:
                 text = re.sub(r'<[^>]+>', ' ', response.text)
                 text = re.sub(r'\s+', ' ', text).strip()[:5000]
                 return text
-        except Exception as e:
-            print(f"[!] DuckDuckGo error: {e}")
-
     except Exception as e:
         print(f"[!] Search error: {e}")
 

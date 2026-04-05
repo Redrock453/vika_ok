@@ -14,7 +14,8 @@ logger = logging.getLogger("LocalAnalyzer")
 
 class LocalAnalyzer:
     def __init__(self):
-        self.qdrant = QdrantManager()
+        qdrant_host = os.getenv('QDRANT_HOST', 'localhost')
+        self.qdrant = QdrantManager(host=qdrant_host)
         self.model = SentenceTransformer('distiluse-base-multilingual-cased-v2')
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -60,6 +61,7 @@ class LocalAnalyzer:
         return True
 
 if __name__ == "__main__":
-    # Анализируем проект BAS-SUPERGROK
+    import sys
+    target_dir = sys.argv[1] if len(sys.argv) > 1 else "."
     analyzer = LocalAnalyzer()
-    analyzer.analyze_dir(r"C:\Users\admin\BAS-SUPERGROK")
+    analyzer.analyze_dir(target_dir)

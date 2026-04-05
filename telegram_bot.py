@@ -22,8 +22,11 @@ BASE_DIR = Path(__file__).parent.absolute()
 load_dotenv(BASE_DIR / '.env')
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-ALLOWED_IDS = [int(x) for x in os.getenv('ALLOWED_IDS', '').split(',') if x.strip()]
-ADMIN_ID = ALLOWED_IDS[0] if ALLOWED_IDS else None
+ALLOWED_IDS_RAW = os.getenv('ALLOWED_IDS', '')
+ALLOWED_IDS = [int(x.strip()) for x in ALLOWED_IDS_RAW.split(',') if x.strip() and x.strip().isdigit()]
+if not ALLOWED_IDS:
+    raise ValueError("ALLOWED_IDS не установлен или пустой. Укажи хотя бы один Telegram ID в .env")
+ADMIN_ID = ALLOWED_IDS[0]
 
 vika = VikaOk()
 bot = Bot(token=TOKEN)
@@ -77,23 +80,25 @@ async def transcribe_audio(message: types.Message):
 
     await bot.download_file(file.file_path, local_path)
 
+    import shlex
+    safe_local = shlex.quote(local_path)
+    safe_converted = shlex.quote(converted_path)
     subprocess.run(
-        f"ffmpeg -i {local_path} -acodec libmp3lame -y {converted_path}",
-        shell=True, capture_output=True
+        ["ffmpeg", "-i", local_path, "-acodec", "libmp3lame", "-y", converted_path],
+        capture_output=True, timeout=60
     )
 
     text = None
     try:
         with open(converted_path, "rb") as f:
             transcription = vika.groq_client.audio.transcriptions.create(
-                file=(converted_path, f.read()),
                 model="whisper-large-v3",
+                file=f,
                 response_format="text",
-                language="ru"
             )
-            text = transcription
+            text = transcription.text.strip() if hasattr(transcription, 'text') else str(transcription)
     except Exception as e:
-        logger.error(f"Whisper failed: {e}")
+        logger.error(f"Whisper via Groq failed: {e}")
         text = vika.listen_audio(converted_path)
 
     for p in [local_path, converted_path]:

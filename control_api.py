@@ -1,22 +1,31 @@
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Annotated
 import subprocess
 import json
 import os
+import secrets
 
 app = FastAPI(title="Vika Control API - Grok Edition")
 
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("CONTROL_API_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
-API_KEY = os.getenv("CONTROL_API_KEY", "changeme")
+_API_KEY_ENV = os.getenv("CONTROL_API_KEY", "")
+if not _API_KEY_ENV or _API_KEY_ENV == "changeme":
+    API_KEY = secrets.token_urlsafe(32)
+    print(f"⚠️  CONTROL_API_KEY не установлен. Сгенерирован временный ключ: {API_KEY}")
+    print("⚠️  Установи CONTROL_API_KEY в .env для постоянного ключа.")
+else:
+    API_KEY = _API_KEY_ENV
 
-def check_key(x_api_key: str = Header(...)):
+def check_key(x_api_key: Annotated[str, Header()]):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=403, detail="Forbidden")
 
