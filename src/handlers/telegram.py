@@ -95,6 +95,8 @@ def create_bot() -> tuple[Bot, Dispatcher]:
                 logger.error(f"Heart error: {e}")
             await asyncio.sleep(20)
 
-    dp.startup.register(lambda: asyncio.create_task(proactive_heart()))
+    @dp.startup()
+    async def on_startup():
+        asyncio.create_task(proactive_heart())
 
     return bot, dp
