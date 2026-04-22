@@ -7,6 +7,7 @@ from src.core.llm import LLMProvider
 from src.services.rag import RAGService
 from src.services.search import web_search
 from src.services.tools import ToolExecutor, build_tool_prompt
+from src.services.opencode import OpenCodeExecutor
 
 logger = logging.getLogger("vika.agent")
 
@@ -27,6 +28,7 @@ class VikaOk:
         self.rag = RAGService()
         self.tools = ToolExecutor()
         self.ssh = self.tools.ssh  # backward compat
+        self.opencode = OpenCodeExecutor()
 
     def ask(self, query: str, user_id: str = "default") -> str:
         """Process a user query and return response."""

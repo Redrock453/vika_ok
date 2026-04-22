@@ -52,6 +52,21 @@ class ToolExecutor:
             elif action == "ssh_docker":
                 server = params[0] if params else "vika-do-v2"
                 return self.ssh.docker_status(server)
+            elif action == "opencode":
+                task = params[0] if params else "echo hello"
+                return self.opencode.run(task)
+            elif action == "opencode_edit":
+                path = params[0] if params else "/tmp/test.py"
+                changes = params[1] if len(params) > 1 else ""
+                return self.opencode.edit_file(path, changes)
+            elif action == "opencode_create":
+                name = params[0] if params else "project"
+                desc = params[1] if len(params) > 1 else ""
+                return self.opencode.create_project(name, desc)
+            elif action == "opencode_fix":
+                path = params[0] if params else "/tmp/test.py"
+                bug = params[1] if len(params) > 1 else ""
+                return self.opencode.fix_bug(path, bug)
             else:
                 return f"❌ Unknown tool: {action}"
         except Exception as e:
@@ -63,26 +78,38 @@ def build_tool_prompt() -> str:
     return """
 ## Інструменти (TOOLS)
 
-Ти маєш доступ до серверів. Замість того щоб пояснювати що треба зробити — РОБИ це!
+Ти маєш доступ до серверів та інструментів. Замість того щоб пояснювати що треба зробити — РОБИ це!
 
-Формат виклику інструменту (пиши прямо в відповіді):
+### SSH інструменти
+Формат виклику (пиши прямо в відповіді):
 [TOOL:ssh_run:SERVER:COMMAND] — виконати команду на сервері
 [TOOL:ssh_status:SERVER] — системна інформація
 [TOOL:ssh_ls:SERVER:PATH] — список файлів
 [TOOL:ssh_cat:SERVER:PATH] — прочитати файл
 [TOOL:ssh_docker:SERVER] — статус Docker
 
+### OpenCode — делегування задач по коду
+[TOOL:opencode:TASK_DESCRIPTION] — виконати задачу через OpenCode AI
+[TOOL:opencode_edit:FILE_PATH:CHANGES] — редагувати файл
+[TOOL:opencode_create:NAME:DESCRIPTION] — створити новий проєкт
+[TOOL:opencode_fix:FILE_PATH:BUG_DESCRIPTION] — виправити баг
+
+OpenCode — це AI-агент який пише код, створює файли, редагує проєкти.
+Використовуй його для:
+- Написання нового коду
+- Рефакторингу
+- Виправлення багів
+- Створення проєктів з нуля
+- Аналізу коду
+
 Доступні сервери:
 - sitl (100.123.130.38) — ArduPilot SITL
 - vika-do-v2 (100.68.33.14) — основний сервер
 
 ПРАВИЛА:
-1. Коли Бас просить щось перевірити/зробити на сервері — ВИКОНУЙ команди через [TOOL:...]
-2. НЕ пояснюй які команди треба виконати — ВИКОНУЙ їх!
-3. Після виконання — проаналізуй результат і дай коротку відповідь
-4. Можеш виконувати кілька команд послідовно
-
-Приклад:
-Бас: "зайди на sitl сервер і подивись що там"
-Ти: [TOOL:ssh_run:sitl:uname -a && ls -la /root/ && docker ps -a 2>&1]
+1. Коли Бас просить щось перевірити/зробити на сервері — ВИКОНУЙ команди через [TOOL:ssh_...]
+2. Коли Бас просить написати/виправити код — делегуй через [TOOL:opencode:...]
+3. НЕ пояснюй які команди треба виконати — ВИКОНУЙ їх!
+4. Після виконання — проаналізуй результат і дай коротку відповідь
+5. Можеш виконувати кілька команд послідовно
 """
