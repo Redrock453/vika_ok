@@ -4,7 +4,7 @@ WORKDIR /app
 
 # System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg curl && \
+    ffmpeg curl openssh-client && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Python deps
