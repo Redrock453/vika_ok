@@ -10,9 +10,11 @@ services:
     volumes:
       - hf_cache:/root/.cache
       - bot_data:/app/data
+      - ssh_keys:/root/.ssh
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
 volumes:
   hf_cache:
   bot_data:
+  ssh_keys:
