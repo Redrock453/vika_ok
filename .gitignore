@@ -9,3 +9,4 @@ models/
 temp_speech.wav
 .vscode/
 .idea/
+.venv/

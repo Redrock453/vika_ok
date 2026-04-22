@@ -1,84 +1,83 @@
-# ⚡ Vika_Ok v8.3 — Боевой AI-агент
+# Vika_Ok 🇺🇦
 
-Персональный AI-агент с умным роутингом LLM, RAG-памятью и самообучением.
+AI-асистент Баса — Telegram бот з RAG, голосовими повідомленнями та fallback-ланцюжком LLM.
 
-## Возможности
-
-- **6 LLM провайдеров** с автороутингом по сложности запроса
-- **RAG** — векторная память на Qdrant
-- **Самообучение** — `learn: тема` → Gemini-CLI → Qdrant
-- **Shell** — прямое выполнение команд через `exec`
-- **YOLO режим** — автовыполнение без подтверждений
-- **Fallback** — работает без интернета через Ollama
-
-## Роутинг
+## Архітектура
 
 ```
-Простой запрос  → ⚡ GLM-4.5-air:free  ($0.00/1M)
-Сложный запрос  → 🧠 Gemini-2.5-flash  ($0.15/1M)
-Нет интернета   → 🏠 Ollama-local      ($0.00)
+src/
+  core/
+    config.py      ← Конфігурація (.env)
+    agent.py       ← Головний агент
+    llm.py         ← LLM провайдери з retry + fallback
+    history.py     ← Історія чатів (JSON)
+  handlers/
+    telegram.py    ← Telegram handlers
+  services/
+    rag.py         ← Qdrant векторний пошук
+    search.py      ← DuckDuckGo пошук
+    tasks.py       ← Нагадування
+run.py             ← Entrypoint
 ```
 
-Полная цепочка: GLM-4.5-air → GLM-4.7-Flash → Gemini → Groq → GLM-4.7 → Ollama
+## LLM Fallback ланцюжок
 
-## Установка
+DO Agent → Groq → Gemini (3 спроби з exponential backoff кожного)
+
+## Швидкий старт
+
+### Docker (рекомендовано)
 
 ```bash
+# 1. Клонувати
 git clone https://github.com/Redrock453/vika_ok.git
 cd vika_ok
+git checkout dev
+
+# 2. Створити .env
+cp .env.example .env
+# Заповнити ключі
+
+# 3. Запустити
+docker compose up -d
+```
+
+### Без Docker
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
+python run.py
 ```
 
-Создай `.env`:
-```
-GEMINI_API_KEY=...
-ZAI_API_KEY=...
-OPENROUTER_API_KEY=...
-GROQ_API_KEY=...
-QDRANT_URL=http://localhost:6333
-QDRANT_COLLECTION=vika_knowledge
-```
+## Змінні середовища
 
-## Запуск
+| Змінна | Опис | Обов'язкова |
+|--------|------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | ✅ |
+| `ALLOWED_IDS` | Telegram ID через кому | ✅ |
+| `DO_AI_API_KEY` | DO Agent API ключ | Ні |
+| `DO_AI_BASE_URL` | DO Agent URL | Ні |
+| `GROQ_API_KEY` | Groq API ключ + Whisper STT | Рекомендовано |
+| `GEMINI_API_KEY` | Google Gemini API ключ | Рекомендовано |
+| `QDRANT_HOST` | Qdrant хост (default: `vika_qdrant`) | Ні |
+| `QDRANT_PORT` | Qdrant порт (default: `6333`) | Ні |
 
-```bash
-python agent.py
-```
+## Можливості
 
-Windows: двойной клик на `run.bat`
+- 💬 Чат з контекстом (історія 30 повідомлень)
+- 🎤 Голосові повідомлення → транскрипція (Whisper) → відповідь
+- 🔍 RAG пошук по базі знань (Qdrant + sentence-transformers)
+- 🌐 Web пошук (DuckDuckGo)
+- 📋 Нагадування / задачі
+- 🔄 Автоматичний fallback між LLM провайдерами
 
-## Команды
+## Версія
 
-| Команда | Действие |
-|---------|----------|
-| `exec <команда>` | Выполнить shell |
-| `learn: <тема>` | Изучить и записать в память |
-| `yolo` | Вкл/выкл автовыполнение |
-| `статус` | Диагностика системы |
-| `нет` / `отмена` | Отменить команду |
-| `выход` | Выход |
+**v13.0-PRODUCTION** — модульна архітектура, Docker, retry/fallback
 
-## CLI режим (для ботов)
+## Ліцензія
 
-```bash
-python agent.py --query "твой вопрос"
-```
-
-## Стек
-
-- **LLM**: Gemini 2.5-flash, GLM-4.7, Groq Llama-3.3, Ollama
-- **Память**: Qdrant + sentence-transformers
-- **Обучение**: Gemini-CLI → чанки → Qdrant
-- **ОС**: Windows / Linux VPS
-
-## Roadmap
-
-- [x] v8.3 — Smart LLM routing + RAG + YOLO
-- [ ] v8.4 — Деплой на VPS (LightNode)
-- [ ] v8.5 — Веб-поиск (DuckDuckGo)
-- [ ] v8.6 — Signal/Telegram интеграция
-- [ ] v9.0 — Файнтюнинг на базе диалогов
-
----
-
-*Хозяин: Вячеслав (БАС), подразделение ВСУ*
+Приватний проєкт Баса ❤️
