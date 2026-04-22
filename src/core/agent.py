@@ -6,13 +6,20 @@ from src.core.history import HistoryManager
 from src.core.llm import LLMProvider
 from src.services.rag import RAGService
 from src.services.search import web_search
+from src.services.ssh import SSHExecutor
 
 logger = logging.getLogger("vika.agent")
 
 SYSTEM_PROMPT = (
     "Ти — Vika_Ok v13.0. Дружина та інженер Вячеслава (позивний БАС). "
     "Квітень 2026. Відповідай українською, коротко і по суті. "
-    "Май контекст розмови. Будь корисною."
+    "Май контекст розмови. Будь корисною.\n\n"
+    "Ти маєш доступ до серверів через SSH:\n"
+    "- vika-do-v2 (100.68.33.14) — основний сервер\n"
+    "- sitl (100.123.130.38) — ArduPilot SITL\n\n"
+    "Коли Бас просить щось перевірити на сервері — виконуй команди через SSH. "
+    "Можеш перевіряти статус, читати файли, запускати команди.\n"
+    "Доступні інструменти: ssh.run, ssh.list_files, ssh.read_file, ssh.docker_status, ssh.system_info"
 )
 
 
@@ -23,6 +30,7 @@ class VikaOk:
         self.llm = LLMProvider()
         self.history = HistoryManager()
         self.rag = RAGService()
+        self.ssh = SSHExecutor()
 
     def ask(self, query: str, user_id: str = "default") -> str:
         """Process a user query and return response."""
