@@ -80,45 +80,8 @@ def create_bot() -> tuple[Bot, Dispatcher]:
         uid = str(message.from_user.id)
         if uid not in [str(i) for i in config.allowed_ids]:
             return
-
-        text = message.text.lower()
-
-        # SSH command detection
-        ssh_keywords = ["сервер", "server", "зайди", "подивись", "перевір",
-                         "запусти", "статус", "docker", "лог", "logs",
-                         "sitl", "ardupilot", "збери", "зберіть"]
-
-        if any(kw in text for kw in ssh_keywords):
-            # Try to detect which server
-            server = None
-            cmd = None
-            if "sitl" in text or "ardupilot" in text or "100.123" in text:
-                server = "sitl"
-            elif "vika-do" in text or "100.68" in text:
-                server = "vika-do-v2"
-            else:
-                server = "vika-do-v2"  # default
-
-            # Build command from context
-            if "подивись" in text or "перевір" in text or "стан" in text:
-                cmd = "ls -la /root/ && echo '---DOCKER---' && docker ps --format 'table {{.Names}}\t{{.Status}}' 2>&1 || echo 'Docker not found'"
-            elif "лог" in text or "log" in text:
-                cmd = "docker logs --tail 30 $(docker ps -q | head -1) 2>&1 || journalctl --no-pager -n 20"
-            else:
-                # General info
-                cmd = "uname -a && echo '---' && ls -la /root/ && echo '---DOCKER---' && docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1 || echo 'No docker'"
-
-            await message.answer("🔍 Перевіряю сервер...")
-            result = vika.ssh.run(server, cmd)
-            # Send raw result to LLM for analysis
-            llm_response = vika.ask(
-                f"Ось що я знайшла на сервері {server}:\n{result}\n\nПроаналізуй і коротко поясни стан.",
-                uid
-            )
-            await message.answer(llm_response)
-        else:
-            response = vika.ask(message.text, uid)
-            await message.answer(response)
+        response = vika.ask(message.text, uid)
+        await message.answer(response)
 
     # --- Background proactive loop ---
 

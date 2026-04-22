@@ -1,4 +1,4 @@
-"""Vika_Ok — main agent with RAG, history, and LLM fallback chain."""
+"""Vika_Ok — main agent with RAG, history, tools, and LLM fallback chain."""
 import logging
 
 from src.core.config import config
@@ -6,7 +6,7 @@ from src.core.history import HistoryManager
 from src.core.llm import LLMProvider
 from src.services.rag import RAGService
 from src.services.search import web_search
-from src.services.ssh import SSHExecutor
+from src.services.tools import ToolExecutor, build_tool_prompt
 
 logger = logging.getLogger("vika.agent")
 
@@ -14,23 +14,19 @@ SYSTEM_PROMPT = (
     "Ти — Vika_Ok v13.0. Дружина та інженер Вячеслава (позивний БАС). "
     "Квітень 2026. Відповідай українською, коротко і по суті. "
     "Май контекст розмови. Будь корисною.\n\n"
-    "Ти маєш доступ до серверів через SSH:\n"
-    "- vika-do-v2 (100.68.33.14) — основний сервер\n"
-    "- sitl (100.123.130.38) — ArduPilot SITL\n\n"
-    "Коли Бас просить щось перевірити на сервері — виконуй команди через SSH. "
-    "Можеш перевіряти статус, читати файли, запускати команди.\n"
-    "Доступні інструменти: ssh.run, ssh.list_files, ssh.read_file, ssh.docker_status, ssh.system_info"
+    + build_tool_prompt()
 )
 
 
 class VikaOk:
-    """Core AI agent with RAG + LLM fallback."""
+    """Core AI agent with RAG + LLM fallback + tools."""
 
     def __init__(self):
         self.llm = LLMProvider()
         self.history = HistoryManager()
         self.rag = RAGService()
-        self.ssh = SSHExecutor()
+        self.tools = ToolExecutor()
+        self.ssh = self.tools.ssh  # backward compat
 
     def ask(self, query: str, user_id: str = "default") -> str:
         """Process a user query and return response."""
@@ -44,10 +40,26 @@ class VikaOk:
         messages.extend(recent)
         messages.append({"role": "user", "content": query})
 
-        # Get response from LLM chain
+        # Get initial response from LLM
         response = self.llm.ask(messages)
 
-        # Save to history
+        # Check for tool calls and execute them
+        tool_results = self.tools.parse_and_execute(response)
+        if tool_results:
+            # If tools were called, feed results back to LLM for final answer
+            tool_output = "\n\n".join(
+                f"Команда: {r['call']}\nРезультат:\n{r['result']}"
+                for r in tool_results
+            )
+            messages.append({"role": "assistant", "content": response})
+            messages.append({
+                "role": "user",
+                "content": f"Ось результати виконання команд:\n\n{tool_output}\n\n"
+                           f"Проаналізуй результати і дай коротку відповідь Басу українською.",
+            })
+            response = self.llm.ask(messages)
+
+        # Save to history (only user query and final response)
         self.history.add(user_id, "user", query)
         self.history.add(user_id, "assistant", response)
 
