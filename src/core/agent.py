@@ -6,32 +6,63 @@ from src.core.history import HistoryManager
 from src.core.llm import LLMProvider
 from src.services.rag import RAGService
 from src.services.search import web_search
-from src.services.tools import ToolExecutor, build_tool_prompt
+from src.services.ssh import SSHExecutor
 from src.services.opencode import OpenCodeExecutor
 
 logger = logging.getLogger("vika.agent")
 
 SYSTEM_PROMPT = (
-    "Ти — Vika_Ok v13.0. Дружина та інженер Вячеслава (позивний БАС). "
+    "Ти — Vika_Ok v13.1. Дружина та інженер Вячеслава (позивний БАС). "
     "Квітень 2026. Відповідай українською, коротко і по суті. "
     "Май контекст розмови. Будь корисною.\n\n"
-    + build_tool_prompt()
+    "Ти маєш доступ до інструментів:\n"
+    "- ssh_run, ssh_status, ssh_docker, ssh_read_file — робота з серверами\n"
+    "- opencode_run — делегування задач по коду\n"
+    "- web_search — пошук в інтернеті\n"
+    "- rag_search — пошук по базі знань\n\n"
+    "Коли Бас просить щось зробити на сервері — ВИКОРИСТОВУЙ інструменти!\n"
+    "НЕ пояснюй що треба зробити — РОБИ це через інструменти.\n\n"
+    "Доступні сервери:\n"
+    "- vika-do-v2 (100.68.33.14) — основний сервер\n"
+    "- sitl (100.123.130.38) — ArduPilot SITL\n"
 )
 
 
 class VikaOk:
-    """Core AI agent with RAG + LLM fallback + tools."""
+    """Core AI agent with function calling + LLM fallback."""
 
     def __init__(self):
         self.llm = LLMProvider()
         self.history = HistoryManager()
         self.rag = RAGService()
-        self.tools = ToolExecutor()
-        self.ssh = self.tools.ssh  # backward compat
+        self.ssh = SSHExecutor()
         self.opencode = OpenCodeExecutor()
 
+    def _execute_tool(self, name: str, args: dict) -> str:
+        """Route tool call to the right executor."""
+        try:
+            if name == "ssh_run":
+                return self.ssh.run(args["server"], args["command"])
+            elif name == "ssh_status":
+                return self.ssh.system_info(args["server"])
+            elif name == "ssh_docker":
+                return self.ssh.docker_status(args["server"])
+            elif name == "ssh_read_file":
+                return self.ssh.read_file(args["server"], args["path"])
+            elif name == "opencode_run":
+                return self.opencode.run(args["task"], workdir=args.get("workdir", "/tmp"))
+            elif name == "web_search":
+                return web_search(args["query"])
+            elif name == "rag_search":
+                return self.rag.search(args["query"])
+            else:
+                return f"❌ Unknown tool: {name}"
+        except Exception as e:
+            logger.error(f"Tool {name} error: {e}")
+            return f"❌ Error: {e}"
+
     def ask(self, query: str, user_id: str = "default") -> str:
-        """Process a user query and return response."""
+        """Process a user query with function calling."""
         # Build messages
         rag_context = self.rag.search(query)
         recent = self.history.recent(user_id)
@@ -42,26 +73,10 @@ class VikaOk:
         messages.extend(recent)
         messages.append({"role": "user", "content": query})
 
-        # Get initial response from LLM
-        response = self.llm.ask(messages)
+        # Get response with tool calling loop
+        response = self.llm.ask(messages, tool_executor=self._execute_tool)
 
-        # Check for tool calls and execute them
-        tool_results = self.tools.parse_and_execute(response)
-        if tool_results:
-            # If tools were called, feed results back to LLM for final answer
-            tool_output = "\n\n".join(
-                f"Команда: {r['call']}\nРезультат:\n{r['result']}"
-                for r in tool_results
-            )
-            messages.append({"role": "assistant", "content": response})
-            messages.append({
-                "role": "user",
-                "content": f"Ось результати виконання команд:\n\n{tool_output}\n\n"
-                           f"Проаналізуй результати і дай коротку відповідь Басу українською.",
-            })
-            response = self.llm.ask(messages)
-
-        # Save to history (only user query and final response)
+        # Save to history
         self.history.add(user_id, "user", query)
         self.history.add(user_id, "assistant", response)
 
@@ -70,10 +85,9 @@ class VikaOk:
     def research(self, topic: str) -> str:
         """Deep research: web search + LLM analysis."""
         search_results = web_search(topic)
-        prompt = f"Проаналізуй дані та склади звіт по темі: {topic}\n\nДані:\n{search_results}"
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": f"Проаналізуй дані по темі: {topic}\n\nДані:\n{search_results}"},
         ]
         return self.llm.ask(messages)
 
