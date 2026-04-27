@@ -1,15 +1,21 @@
 """Vika_Ok Telegram Bot — production entrypoint."""
 import logging
 import asyncio
+import sys
+from pathlib import Path
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent))
 
 from src.core.config import config
 from src.handlers.telegram import create_bot
 
+# Configure logging with level from config
 logging.basicConfig(
-    level=logging.INFO,
+    level=config.log_level,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
-        logging.FileHandler("/app/bot.log"),
+        logging.FileHandler(config.log_file),
         logging.StreamHandler(),
     ],
 )
@@ -17,17 +23,25 @@ logger = logging.getLogger("vika")
 
 
 async def main():
-    if not config.telegram_token:
-        logger.error("TELEGRAM_BOT_TOKEN not set!")
-        return
-    if not config.allowed_ids:
-        logger.error("ALLOWED_IDS not set!")
-        return
+    # Validate config first
+    is_valid, errors = config.validate()
+    if not is_valid:
+        logger.error("Configuration validation failed:")
+        for error in errors:
+            logger.error(f"  - {error}")
+        logger.error("Fix these issues in .env and restart.")
+        sys.exit(1)
 
     bot, dp = create_bot()
-    logger.info("Vika_Ok v13.0 starting...")
+    logger.info(f"Vika_Ok v13.1 starting... (log level: {config.log_level})")
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.exception("Fatal error")
+        sys.exit(1)

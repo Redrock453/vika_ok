@@ -5,16 +5,43 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      - QDRANT_HOST=host.docker.internal
+      - QDRANT_HOST=vika_qdrant
       - QDRANT_PORT=6333
+      - PYTHONUNBUFFERED=1
     volumes:
       - hf_cache:/root/.cache
       - bot_data:/app/data
+      - audio_temp:/tmp/vika_audio
       - ssh_keys:/root/.ssh
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - qdrant
+    networks:
+      - vika_network
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: vika_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - vika_network
+
+networks:
+  vika_network:
+    driver: bridge
 
 volumes:
   hf_cache:
   bot_data:
+  audio_temp:
   ssh_keys:
+  qdrant_data:

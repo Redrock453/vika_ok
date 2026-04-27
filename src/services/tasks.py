@@ -1,4 +1,5 @@
 """Task scheduler for proactive reminders."""
+import fcntl
 import json
 import logging
 import time
@@ -18,7 +19,11 @@ class TaskScheduler:
     def _load(self) -> list[dict]:
         try:
             with open(config.tasks_file, "r") as f:
-                return json.load(f)
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                try:
+                    return json.load(f)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except FileNotFoundError:
             return []
         except Exception as e:
@@ -28,7 +33,11 @@ class TaskScheduler:
     def _save(self):
         try:
             with open(config.tasks_file, "w") as f:
-                json.dump(self._tasks, f, indent=4, ensure_ascii=False)
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    json.dump(self._tasks, f, indent=4, ensure_ascii=False)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except Exception as e:
             logger.error(f"Tasks save error: {e}")
 

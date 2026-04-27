@@ -1,5 +1,6 @@
 """Remote server execution via SSH."""
 import logging
+import os
 import subprocess
 from typing import Optional
 
@@ -17,8 +18,8 @@ SERVERS = {
 class SSHExecutor:
     """Execute commands on remote servers via SSH."""
 
-    def __init__(self):
-        self.key_path = "/root/.ssh/id_ed25519"
+    def __init__(self, key_path: str | None = None):
+        self.key_path = key_path or os.getenv("SSH_KEY_PATH", "/root/.ssh/id_ed25519")
 
     def run(self, host: str, command: str, timeout: int = 30) -> str:
         """Run a command on remote server and return output."""
@@ -27,9 +28,10 @@ class SSHExecutor:
 
         cmd = [
             "ssh",
-            "-o", "StrictHostKeyChecking=no",
+            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=10",
-            "-o", f"ServerAliveInterval={timeout}",
+            "-o", "ServerAliveInterval=5",
+            "-o", f"ServerAliveCountMax={max(1, timeout // 5)}",
             "-i", self.key_path,
             f"root@{target}",
             command,

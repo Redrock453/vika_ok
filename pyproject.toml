@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vika-ok"
+version = "13.1.1"
+description = "AI assistant Віка — Telegram bot with RAG, voice, and LLM fallback"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Proprietary"}
+authors = [
+    {name = "Redrock453"},
+]
+keywords = ["telegram", "bot", "ai", "rag", "llm", "assistant"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Communications :: Chat",
+    "License :: Other/Proprietary",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "openai>=1.12.0,<2.0.0",
+    "google-generativeai>=0.4.0,<1.0.0",
+    "aiogram>=3.13.0,<4.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "qdrant-client>=1.7.0,<2.0.0",
+    "sentence-transformers>=2.2.2,<3.0.0",
+    "requests>=2.31.0,<3.0.0",
+    "beautifulsoup4>=4.12.0,<5.0.0",
+    "duckduckgo-search>=6.0.0,<7.0.0",
+    "fastapi>=0.110.0,<1.0.0",
+    "uvicorn[standard]>=0.29.0,<1.0.0",
+    "cryptography>=42.0.0,<43.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+vika = "run:main"
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

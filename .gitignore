@@ -8,3 +8,4 @@ bot.log
 control.pid
 *.tmp
 *.bak
+archive/

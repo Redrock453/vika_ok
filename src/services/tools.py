@@ -18,6 +18,7 @@ class ToolExecutor:
 
     def __init__(self):
         self.ssh = SSHExecutor()
+        self.opencode = OpenCodeExecutor()
 
     def parse_and_execute(self, llm_response: str) -> list[dict]:
         """Find tool calls in LLM response, execute them, return results."""
